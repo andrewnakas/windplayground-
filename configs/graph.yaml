@@ -3,13 +3,13 @@ model:
   name: graph
   two_frame: true
   params:
-    refinements: 3
+    refinements: 3   # 642-node icosphere (GraphCast uses a 6-level multi-mesh)
     hidden: 128
     rounds: 6
 train:
   batch_size: 16
-  max_steps: 6000
+  max_steps: 3000
   lr: 3.0e-4
-  warmup_steps: 500
+  warmup_steps: 300
   val_every: 500
-  time_budget_hours: 3.0
+  time_budget_hours: 1.3
