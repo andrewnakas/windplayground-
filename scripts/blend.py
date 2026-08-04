@@ -57,8 +57,6 @@ def fit_weights(
     sqrt_w = np.sqrt(lat_w)[:, None]
 
     for k in range(K):
-        preds = []  # (M, N, H, W) per channel handled below
-        rows = [m.forecast(t, K)[k] for m in members[:1] for t in common]
         # gather all members: (M, N, C, H, W)
         stack = np.stack(
             [np.stack([m.forecast(t, K)[k] for t in common]) for m in members]
@@ -69,15 +67,19 @@ def fit_weights(
             w_out[k, :, :-1] = 1.0 / M  # fallback: equal weights
             continue
         stack, tgt = stack[:, ok], tgt[ok]
+        # Latitude-weighted least squares: scaling both sides by sqrt(w) makes
+        # ordinary LS minimize the latitude-weighted residual. The intercept
+        # column gets the same sqrt(w) scaling (it is a constant 1 before
+        # scaling), so its coefficient is exactly the constant offset that
+        # BlendForecaster adds back.
+        intercept = np.broadcast_to(sqrt_w, tgt.shape[-2:])  # (H, W)
+        intercept = np.broadcast_to(intercept, tgt[:, 0].shape).ravel()
         for c in range(C):
-            X = stack[:, :, c] * sqrt_w  # (M, N, H, W)
+            X = (stack[:, :, c] * sqrt_w).reshape(M, -1)  # (M, N*H*W)
             y = (tgt[:, c] * sqrt_w).ravel()
-            A = np.concatenate(
-                [X.reshape(M, -1), np.ones((1, X[0].size)) * sqrt_w.mean()]
-            ).T
+            A = np.concatenate([X, intercept[None]]).T
             coef, *_ = np.linalg.lstsq(A, y, rcond=None)
-            w_out[k, c, :-1] = coef[:-1]
-            w_out[k, c, -1] = coef[-1] * sqrt_w.mean()
+            w_out[k, c] = coef
     return w_out
 
 
