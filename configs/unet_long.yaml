@@ -1,0 +1,15 @@
+# Long run of our best family, aimed at the published 5.625 deg anchor
+# (Rasp & Thuerey 2021 ResNet: z500 RMSE 268/499 at 3/5 days).
+run_name: unet_long
+model:
+  name: unet
+  two_frame: true
+  params:
+    width: 48
+train:
+  batch_size: 16
+  max_steps: 45000
+  lr: 4.0e-4
+  warmup_steps: 1000
+  val_every: 1000
+  time_budget_hours: 4.0

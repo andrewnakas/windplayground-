@@ -1,0 +1,17 @@
+# Does the transformer overtake the CNN given several times the budget?
+run_name: vit_long
+model:
+  name: vit
+  two_frame: true
+  params:
+    patch: 4
+    dim: 192
+    depth: 6
+    heads: 4
+train:
+  batch_size: 16
+  max_steps: 30000
+  lr: 4.0e-4
+  warmup_steps: 1000
+  val_every: 1000
+  time_budget_hours: 5.0
