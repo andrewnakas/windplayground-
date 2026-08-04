@@ -62,6 +62,7 @@ class TrainConfig:
     grad_clip: float = 1.0
     time_budget_hours: float | None = None
     rollout_steps: int = 1  # K: number of autoregressive steps in the loss
+    direct_lead_h: int | None = None  # predict this lead in one shot instead
     val_every: int = 1000
     channel_loss_weights: dict[str, float] = field(default_factory=dict)
     device: str = "auto"  # auto | cpu | cuda

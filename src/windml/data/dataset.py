@@ -47,7 +47,12 @@ class Era5Dataset(Dataset):
         normalizer: Normalizer,
         rollout_steps: int = 1,
         two_frame: bool = True,
+        direct_steps: int | None = None,
     ):
+        """direct_steps: predict the state this many 6h steps ahead in ONE shot
+        instead of rolling the 6h model forward. This is how Rasp & Thuerey's
+        WeatherBench ResNet reaches 3 days, and it avoids the error the
+        autoregressive rollout accumulates over 12 steps."""
         self.array = np.ascontiguousarray(load_years(cfg, list(range(years[0], years[1] + 1))))
         self.times = year_range_times(years)
         assert len(self.times) == self.array.shape[0], (
@@ -56,13 +61,33 @@ class Era5Dataset(Dataset):
         self.norm = normalizer
         self.K = rollout_steps
         self.two_frame = two_frame
+        self.direct_steps = direct_steps
         self.static = build_static_channels(cfg)  # (5, H, W)
         hours = (self.times - np.datetime64("1970-01-01T00", "h")) / np.timedelta64(1, "h")
         self.time_feats = time_encodings(hours.astype(np.float64))  # (T, 4)
         self.margin = 1 if two_frame else 0
+        # scale for the direct target: spread of L-step differences, estimated
+        # on a sample so it is cheap and stable
+        self.direct_std = (
+            self._estimate_direct_std(direct_steps) if direct_steps else None
+        )
+
+    def _estimate_direct_std(self, steps: int, n_samples: int = 1500) -> np.ndarray:
+        rng = np.random.default_rng(0)
+        hi = self.array.shape[0] - steps - 1
+        idx = rng.choice(hi, size=min(n_samples, hi), replace=False)
+        diffs = self.array[idx + steps].astype(np.float32) - self.array[idx].astype(np.float32)
+        return diffs.std(axis=(0, 2, 3), dtype=np.float64).astype(np.float32)[
+            None, :, None, None
+        ]
+
+    @property
+    def horizon(self) -> int:
+        """Timesteps of future data a sample needs."""
+        return self.direct_steps if self.direct_steps else self.K
 
     def __len__(self) -> int:
-        return self.array.shape[0] - self.K - self.margin
+        return self.array.shape[0] - self.horizon - self.margin
 
     @property
     def n_input_channels(self) -> int:
@@ -81,6 +106,11 @@ class Era5Dataset(Dataset):
     def __getitem__(self, idx: int):
         t = idx + self.margin
         x = self.input_at(t)
+        if self.direct_steps:
+            # one shot to the target lead: (x_{t+L} - x_t) / std_L
+            delta = (self.array[t + self.direct_steps] - self.array[t]).astype(np.float32)
+            target = (delta[None] / self.direct_std)[0]
+            return torch.from_numpy(x), torch.from_numpy(target[None])
         future = self.array[t : t + self.K + 1].astype(np.float32)
         residuals = self.norm.norm_residual(np.diff(future, axis=0))
         return torch.from_numpy(x), torch.from_numpy(np.ascontiguousarray(residuals))

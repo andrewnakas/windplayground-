@@ -116,6 +116,7 @@ class Trainer:
                 "model_name": self.cfg.model.name,
                 "model_params": self.cfg.model.params,
                 "two_frame": self.cfg.model.two_frame,
+                "direct_lead_h": self.cfg.train.direct_lead_h,
                 "run_name": self.cfg.run_name,
                 "step": step,
                 "val_loss": val_loss,

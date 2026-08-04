@@ -31,6 +31,8 @@ def main() -> None:
     p.add_argument("--time-budget-hours", type=float, default=None)
     p.add_argument("--finetune-rollout", type=int, default=None, help="override K")
     p.add_argument("--init-ckpt", default=None)
+    p.add_argument("--direct-lead-h", type=int, default=None,
+               help="train a one-shot model for this lead instead of 6h rollout")
     p.add_argument("--auto-resume", action="store_true",
                    help="continue from artifacts/checkpoints/<run>/last.pt if present")
     p.add_argument("--run-name", default=None)
@@ -41,6 +43,8 @@ def main() -> None:
         cfg.train.max_steps = args.max_steps
     if args.time_budget_hours is not None:
         cfg.train.time_budget_hours = args.time_budget_hours
+    if args.direct_lead_h is not None:
+        cfg.train.direct_lead_h = args.direct_lead_h
     if args.finetune_rollout is not None:
         cfg.train.rollout_steps = args.finetune_rollout
     if args.run_name:
@@ -50,13 +54,14 @@ def main() -> None:
     dcfg = cfg.data if isinstance(cfg.data, DataConfig) else DataConfig()
     stats = load_stats(STATS_PATH)
     norm = Normalizer(stats)
+    direct_steps = (cfg.train.direct_lead_h // 6) if cfg.train.direct_lead_h else None
     train_ds = Era5Dataset(
-        dcfg, dcfg.train_years, norm,
-        rollout_steps=cfg.train.rollout_steps, two_frame=cfg.model.two_frame,
+        dcfg, dcfg.train_years, norm, rollout_steps=cfg.train.rollout_steps,
+        two_frame=cfg.model.two_frame, direct_steps=direct_steps,
     )
     val_ds = Era5Dataset(
-        dcfg, dcfg.val_years, norm,
-        rollout_steps=cfg.train.rollout_steps, two_frame=cfg.model.two_frame,
+        dcfg, dcfg.val_years, norm, rollout_steps=cfg.train.rollout_steps,
+        two_frame=cfg.model.two_frame, direct_steps=direct_steps,
     )
     train_ds.norm = norm
     val_ds.norm = norm

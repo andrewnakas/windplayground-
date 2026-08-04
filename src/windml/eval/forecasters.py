@@ -96,6 +96,39 @@ class ModelForecaster(Forecaster):
         return out
 
 
+class DirectForecaster(Forecaster):
+    """A model trained to jump straight to one lead time.
+
+    Scores only that lead (all others are NaN, which the evaluator skips), so
+    a direct 72h model is compared against everything else at 72h without
+    pretending to produce a full rollout.
+    """
+
+    def __init__(self, model: torch.nn.Module, dataset, name: str):
+        self.model = model.eval()
+        self.ds = dataset          # Era5Dataset built with direct_steps set
+        self.lead_step = dataset.direct_steps
+        self.name = name
+
+    @torch.no_grad()
+    def forecast(self, init_idx: int, K: int) -> np.ndarray:
+        return self.forecast_batch([init_idx], K)[0]
+
+    @torch.no_grad()
+    def forecast_batch(self, init_indices: list[int], K: int) -> np.ndarray:
+        idx = np.asarray(init_indices)
+        C, H, W = self.ds.array.shape[1:]
+        out = np.full((len(idx), K, C, H, W), np.nan, dtype=np.float32)
+        k = self.lead_step - 1
+        if k >= K:
+            return out
+        x = np.stack([self.ds.input_at(int(t)) for t in idx])
+        pred = self.model(torch.from_numpy(x)).numpy()
+        base = self.ds.array[idx].astype(np.float32)
+        out[:, k] = base + pred * self.ds.direct_std
+        return out
+
+
 class StoredForecaster(Forecaster):
     """Pre-computed forecasts indexed as (init_time, lead) -> (C, H, W).
 

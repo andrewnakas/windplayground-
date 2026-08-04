@@ -72,8 +72,18 @@ def main() -> None:
         model = build_model(payload["model_name"], **payload.get("model_params", {}))
         model.load_state_dict(payload["state_dict"])
         two_frame = payload.get("two_frame", True)
-        ds = Era5Dataset(cfg, span, norm, rollout_steps=1, two_frame=two_frame)
-        fc = ModelForecaster(model, ds, norm, args.name or payload.get("run_name", "model"))
+        name = args.name or payload.get("run_name", "model")
+        direct_h = payload.get("direct_lead_h")
+        if direct_h:
+            # one-shot model: scores only its own lead, everything else NaN
+            from windml.eval.forecasters import DirectForecaster
+
+            ds = Era5Dataset(cfg, span, norm, rollout_steps=1, two_frame=two_frame,
+                             direct_steps=direct_h // 6)
+            fc = DirectForecaster(model, ds, name)
+        else:
+            ds = Era5Dataset(cfg, span, norm, rollout_steps=1, two_frame=two_frame)
+            fc = ModelForecaster(model, ds, norm, name)
     elif args.competitor:
         from windml.data.competitors import CompetitorForecaster
 
