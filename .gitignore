@@ -13,3 +13,4 @@ artifacts/checkpoints/**/*.out
 # resume state (optimizer moments): machine-local and rebuildable; the
 # best.pt artifacts are what reproduce the reported results
 artifacts/checkpoints/**/last.pt
+.venv-dyn/
