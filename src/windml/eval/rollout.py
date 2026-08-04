@@ -76,15 +76,18 @@ def evaluate_forecaster(
 
     rows = []
     for k in range(K):
+        # a lead with no valid init times (e.g. odd 6h leads for a 12-hourly
+        # model such as GenCast) scores NaN, not 0 -- 0 would read as perfect
+        n = count[k]
         for v, var in enumerate(SCORED_VARS):
             rows.append(
                 {
                     "model": fc.name,
                     "variable": var,
                     "lead_h": (k + 1) * 6,
-                    "rmse": rmse_sum[k, v] / max(count[k], 1),
-                    "acc": acc_sum[k, v] / max(count[k], 1),
-                    "n_inits": int(count[k]),
+                    "rmse": rmse_sum[k, v] / n if n else np.nan,
+                    "acc": acc_sum[k, v] / n if n else np.nan,
+                    "n_inits": int(n),
                 }
             )
     return pd.DataFrame(rows)

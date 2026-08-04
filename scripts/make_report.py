@@ -25,11 +25,28 @@ UNITS = {
 }
 # display order: baselines, our models, then competitors
 ORDER_HINT = [
+    # baselines
     "persistence", "climatology", "linear",
+    # our from-scratch models (1-step, then rollout fine-tuned)
     "unet", "vit", "afno", "graph",
-    "unet_ft", "vit_ft", "afno_ft",
+    "vit_ft2", "unet_ft2", "unet_ft4",
+    # published frontier forecasts, regridded by WB2 to 64x32
     "hres_2020", "pangu_2020", "graphcast_2020", "gencast_mean_2020",
+    # post-processing / combinations of those forecasts
+    "graphcast_corrected", "graphcast_affine",
+    "blend_graphcast+pangu+hres", "avg4",
 ]
+
+GROUPS = {
+    "baseline": ["persistence", "climatology", "linear"],
+    "ours (from scratch, 4 CPU cores, 5.625 deg)":
+        ["unet", "vit", "afno", "graph", "vit_ft2", "unet_ft2", "unet_ft4"],
+    "published frontier forecasts (0.25 deg, regridded)":
+        ["hres_2020", "pangu_2020", "graphcast_2020", "gencast_mean_2020"],
+    "ours: post-processing / combination of the above":
+        ["graphcast_corrected", "graphcast_affine",
+         "blend_graphcast+pangu+hres", "avg4"],
+}
 
 
 def load_all(pattern: str = "*_test.csv") -> pd.DataFrame:
@@ -37,6 +54,8 @@ def load_all(pattern: str = "*_test.csv") -> pd.DataFrame:
     if not frames:
         return pd.DataFrame()
     df = pd.concat(frames, ignore_index=True)
+    if "n_inits" in df:  # drop leads a model does not produce (12-hourly models)
+        df = df[df.n_inits > 0]
     order = {name: i for i, name in enumerate(ORDER_HINT)}
     df["order"] = df.model.map(lambda m: order.get(m, 99))
     return df.sort_values(["order", "model"])
@@ -79,18 +98,60 @@ def rmse_table(df: pd.DataFrame, variable: str) -> pd.DataFrame:
     return tab.round(3)
 
 
+def _style(model: str) -> dict:
+    """Colour by group so the three tiers read at a glance."""
+    for group, members in GROUPS.items():
+        if model in members:
+            if group.startswith("baseline"):
+                return {"color": "0.6", "ls": ":", "lw": 1.2}
+            if group.startswith("ours (from"):
+                return {"color": "tab:orange", "ls": "--", "lw": 1.2}
+            if group.startswith("published"):
+                return {"color": "tab:blue", "ls": "-", "lw": 1.2}
+            return {"color": "tab:red", "ls": "-", "lw": 2.0}
+    return {"color": "0.3", "ls": "-", "lw": 1.0}
+
+
 def curves_figure(df: pd.DataFrame, variables: list[str], out: Path) -> None:
-    fig, axes = plt.subplots(1, len(variables), figsize=(5 * len(variables), 4))
+    fig, axes = plt.subplots(1, len(variables), figsize=(5 * len(variables), 4.2))
     for ax, var in zip(axes, variables):
         sub = df[df.variable == var]
         for model, grp in sub.groupby("model", sort=False):
             grp = grp.sort_values("lead_h")
-            ax.plot(grp.lead_h, grp.rmse, label=model, marker=".", ms=4)
+            ax.plot(grp.lead_h, grp.rmse, label=model, marker=".", ms=3, **_style(model))
         ax.set_title(var)
         ax.set_xlabel("lead time (h)")
         ax.set_ylabel(f"RMSE ({UNITS.get(var, '')})")
         ax.grid(alpha=0.3)
-    axes[-1].legend(fontsize=7, loc="upper left")
+    axes[-1].legend(fontsize=6.5, loc="upper left", ncol=2)
+    fig.suptitle(
+        "grey = baselines · orange = our CPU-scale models · "
+        "blue = published frontier forecasts · red = our combinations",
+        fontsize=8, y=0.02,
+    )
+    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    FIGURES.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=140)
+    plt.close(fig)
+
+
+def frontier_figure(df: pd.DataFrame, out: Path) -> None:
+    """Zoom on the frontier models + our combinations for 10m wind speed."""
+    keep = GROUPS["published frontier forecasts (0.25 deg, regridded)"] + [
+        "blend_graphcast+pangu+hres", "avg4", "graphcast_corrected",
+    ]
+    sub = df[(df.variable == "wind_speed") & df.model.isin(keep)]
+    if sub.empty:
+        return
+    fig, ax = plt.subplots(figsize=(6.5, 4.2))
+    for model, grp in sub.groupby("model", sort=False):
+        grp = grp.sort_values("lead_h")
+        ax.plot(grp.lead_h, grp.rmse, label=model, marker="o", ms=3, **_style(model))
+    ax.set_xlabel("lead time (h)")
+    ax.set_ylabel("10m wind speed RMSE (m/s)")
+    ax.set_title("Beating the frontier models on 2020 wind (64x32, ERA5 truth)")
+    ax.grid(alpha=0.3)
+    ax.legend(fontsize=7)
     fig.tight_layout()
     FIGURES.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=140)
@@ -144,8 +205,15 @@ def main() -> None:
         lines += ["## Probabilistic: wind CRPS (m/s)", "", tab.round(3).to_markdown(), ""]
 
     curves_figure(df, ["u10", "wind_speed", "z500"], FIGURES / "rmse_curves.png")
-    lines.append("![RMSE curves](artifacts/figures/rmse_curves.png)")
-    lines.append("")
+    frontier_figure(df, FIGURES / "frontier_wind.png")
+    lines += [
+        "## Figures",
+        "",
+        "![RMSE curves](artifacts/figures/rmse_curves.png)",
+        "",
+        "![Frontier wind](artifacts/figures/frontier_wind.png)",
+        "",
+    ]
 
     (REPO_ROOT / "RESULTS.md").write_text("\n".join(lines))
     print(f"wrote {REPO_ROOT / 'RESULTS.md'} with {df.model.nunique()} models")
