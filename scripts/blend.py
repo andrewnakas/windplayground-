@@ -85,18 +85,35 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--members", nargs="+", default=["graphcast", "pangu", "hres"])
     p.add_argument("--leads", type=int, default=20)
+    p.add_argument("--equal-weights", action="store_true",
+                   help="plain member average: zero fitted parameters, so members "
+                        "without a 2018 fitting set (e.g. gencast_mean) can join")
+    p.add_argument("--name", default=None)
     args = p.parse_args()
 
     cfg = DataConfig()
     lat = load_statics(cfg)["latitude"]
     lat_w = latitude_weights(lat)
+    n_members = len(args.members)
 
-    print(f"fitting blend weights on 2018: {args.members}")
-    weights = fit_weights(cfg, args.members, 2018, args.leads, lat_w)
-    np.save(ARTIFACTS / "checkpoints" / "blend_weights.npy", weights)
+    if args.equal_weights:
+        C = 8
+        weights = np.zeros((args.leads, C, n_members + 1), dtype=np.float32)
+        weights[:, :, :-1] = 1.0 / n_members
+        prefix = "avg_"
+    else:
+        print(f"fitting blend weights on 2018: {args.members}")
+        weights = fit_weights(cfg, args.members, 2018, args.leads, lat_w)
+        np.save(ARTIFACTS / "checkpoints" / "blend_weights.npy", weights)
+        prefix = "blend_"
 
-    members_2020 = [CompetitorForecaster(cfg, f"{m}_2020", 2020) for m in args.members]
-    fc = BlendForecaster(members_2020, weights, "blend_" + "+".join(args.members))
+    members_2020 = [
+        CompetitorForecaster(cfg, m if m.endswith("2020") else f"{m}_2020", 2020)
+        for m in args.members
+    ]
+    fc = BlendForecaster(
+        members_2020, weights, args.name or prefix + "+".join(args.members)
+    )
     truth = np.asarray(load_years(cfg, [2020]), dtype=np.float32)
     times = year_range_times((2020, 2020))
     clim = np.asarray(load_climatology(CLIM_PATH))

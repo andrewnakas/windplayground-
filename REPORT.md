@@ -152,6 +152,37 @@ Target: beat raw GraphCast and HRES on 2020 10m-wind RMSE (and CRPS via ensemble
 at the evaluated 64×32 resolution. A per-lead multi-model blend (GraphCast + Pangu + HRES +
 ours) is the second lever — superensembles classically beat every member.
 
+### What we found (see RESULTS.md for the numbers)
+
+**1. Our metrics pipeline reproduces the published ordering.** Scoring the WB2-published
+64×32 forecasts with our own code puts GraphCast ahead of Pangu ahead of HRES, with
+GenCast's ensemble mean best at long leads — exactly the published ranking. Persistence
+(z500 RMSE 923/1019 at 3/5 d) and climatology (803) also land on the WeatherBench-1
+reference values (936/1033 and 816). The harness is trustworthy.
+
+**2. At CPU scale, the CNN beats the transformer and the spectral operator.**
+U-Net (1.06M) > ViT (2.77M) > AFNO (2.02M) on every wind variable. This is not evidence
+against Stormer or FourCastNet — it is the expected regime effect: attention and spectral
+token-mixing have weaker inductive biases than convolution and need far more data and
+compute before they overtake it. Our budget was ~2 epochs of 5.625° ERA5 on 4 CPU cores;
+Stormer used 1.4° and orders of magnitude more compute.
+
+**3. Over-parameterized post-processing does *not* transfer across model versions
+(negative result).** A 1M-parameter U-Net corrector trained on GraphCast's published 2018
+forecasts *degraded* its 2020 forecasts (10m wind speed RMSE 0.97 vs 0.86 at 72 h). The
+2018 and 2020 GraphCast forecast sets come from differently-trained model versions, so a
+high-capacity corrector fits version-specific error structure that no longer exists at
+test time. This is the post-processing analogue of overfitting to a stale model.
+
+**4. Low-parameter multi-model blending *does* transfer — and beats every frontier
+model.** A per-(variable, lead) affine least-squares blend of GraphCast + Pangu + HRES,
+with weights fit on 2018 and applied unchanged to 2020, beats the best individual
+competitor at every lead: **−5.3% / −6.5% / −3.6% on 10m wind speed** and −11% / −12% /
+−6.8% on z500 at 24/72/120 h. It beats GenCast's ensemble mean too, despite GenCast not
+being a member. Three parameters per (variable, lead) generalize across model versions
+where a million do not — the same distribution shift that broke finding 3 leaves the
+blend untouched.
+
 ### What a real 0.25° WB2 leaderboard entry would take
 
 For scope honesty: ~2 TB ERA5 at 0.25°, a 30–300M-param model, and O(10²–10³) A100-days
