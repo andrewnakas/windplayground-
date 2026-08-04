@@ -32,6 +32,18 @@ STATS_PATH = ARTIFACTS / "data" / "stats.json"
 CLIM_PATH = ARTIFACTS / "climatology" / "clim_train.npy"
 
 
+def build_or_load_corrector(payload: dict) -> torch.nn.Module:
+    from windml.models import build_model
+
+    model = build_model(
+        payload["model_name"],
+        in_channels=payload["in_channels"],
+        **payload.get("model_params", {}),
+    )
+    model.load_state_dict(payload["state_dict"])
+    return model
+
+
 def git_sha() -> str:
     try:
         return subprocess.check_output(
@@ -45,6 +57,8 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--model", default=None, choices=["persistence", "climatology", "linear"])
     p.add_argument("--competitor", default=None, help="e.g. graphcast_2020, hres_2020")
+    p.add_argument("--corrector-ckpt", default=None,
+                   help="apply a trained corrector on top of --competitor")
     p.add_argument("--ckpt", default=None)
     p.add_argument("--name", default=None, help="output name override")
     p.add_argument("--split", default="test", choices=["val", "test"])
@@ -79,6 +93,15 @@ def main() -> None:
         fc = CompetitorForecaster(
             cfg, args.competitor, year, display_name=args.name or args.competitor
         )
+        if args.corrector_ckpt:
+            from windml.train.corrector import CorrectedForecaster, CorrectorDataset
+
+            payload = torch.load(args.corrector_ckpt, map_location="cpu", weights_only=False)
+            corr_model = build_or_load_corrector(payload)
+            corr_ds = CorrectorDataset(cfg, args.competitor, year, norm)
+            fc = CorrectedForecaster(
+                fc, corr_model, corr_ds, args.name or f"{args.competitor}+corr"
+            )
     elif args.model == "persistence":
         fc = PersistenceForecaster(truth)
     elif args.model == "climatology":

@@ -1,0 +1,23 @@
+# Medium tier: 128x64 grid (2.8125 deg), sized for a GTX 1080 / Kaggle P100-T4.
+# Build the matching cache first:
+#   python scripts/build_cache.py  (with data.zarr_url/grid below via train.py)
+run_name: vit_medium
+data:
+  zarr_url: "gs://weatherbench2/datasets/era5/1959-2022-6h-128x64_equiangular_conservative.zarr"
+  grid: "128x64"
+model:
+  name: vit
+  two_frame: true
+  params:
+    img_size: [64, 128]
+    patch: 4
+    dim: 384
+    depth: 10
+    heads: 6
+train:
+  batch_size: 32
+  max_steps: 40000
+  lr: 3.0e-4
+  warmup_steps: 1000
+  val_every: 2000
+  time_budget_hours: 10.0

@@ -1,15 +1,14 @@
-run_name: afno
+run_name: graph
 model:
-  name: afno
+  name: graph
   two_frame: true
   params:
-    patch: 4
-    dim: 192
-    depth: 6
-    num_blocks: 8
+    refinements: 3
+    hidden: 128
+    rounds: 6
 train:
   batch_size: 16
-  max_steps: 5000
+  max_steps: 6000
   lr: 3.0e-4
   warmup_steps: 500
   val_every: 500

@@ -25,9 +25,16 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--years", nargs=2, type=int, default=None, metavar=("START", "END"))
     p.add_argument("--skip-derived", action="store_true", help="cache only, no stats/clim")
+    p.add_argument("--config", default=None,
+                   help="training config yaml whose data: section selects grid/url")
     args = p.parse_args()
 
-    cfg = DataConfig()
+    if args.config:
+        from windml.config import Config
+
+        cfg = Config.from_yaml(args.config).data
+    else:
+        cfg = DataConfig()
     if args.years:
         years = list(range(args.years[0], args.years[1] + 1))
     else:

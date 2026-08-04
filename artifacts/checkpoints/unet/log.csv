@@ -1,1 +1,2 @@
 step,lr,train_loss,val_loss,elapsed_s
+500,3.00e-04,0.2618,0.2690,405

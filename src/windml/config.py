@@ -37,6 +37,7 @@ STATIC_VARIABLES = ["land_sea_mask", "geopotential_at_surface"]
 @dataclass
 class DataConfig:
     zarr_url: str = WB2_ERA5_64x32
+    grid: str = "64x32"  # cache namespace; "128x64" for the medium (GPU) tier
     cache_dir: str = str(ARTIFACTS / "data")
     train_years: tuple[int, int] = (1979, 2017)
     val_years: tuple[int, int] = (2018, 2019)

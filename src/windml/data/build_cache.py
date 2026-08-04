@@ -21,7 +21,7 @@ def open_wb2(url: str) -> xr.Dataset:
 
 
 def _cache_root(cfg: DataConfig) -> Path:
-    return Path(cfg.cache_dir) / "era5_64x32"
+    return Path(cfg.cache_dir) / f"era5_{cfg.grid}"
 
 
 def year_path(cfg: DataConfig, year: int) -> Path:

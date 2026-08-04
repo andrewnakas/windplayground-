@@ -23,7 +23,9 @@ COMPETITOR_URLS = {
     "graphcast_2020": "gs://weatherbench2/datasets/graphcast/2020/date_range_2019-11-16_2021-02-01_12_hours-64x32_equiangular_conservative.zarr",
     "graphcast_2018": "gs://weatherbench2/datasets/graphcast/2018/date_range_2017-11-16_2019-02-01_12_hours-64x32_equiangular_conservative.zarr",
     "pangu_2020": "gs://weatherbench2/datasets/pangu/2018-2022_0012_64x32_equiangular_conservative.zarr",
+    "pangu_2018": "gs://weatherbench2/datasets/pangu/2018-2022_0012_64x32_equiangular_conservative.zarr",
     "hres_2020": "gs://weatherbench2/datasets/hres/2016-2022-0012-64x32_equiangular_conservative.zarr",
+    "hres_2018": "gs://weatherbench2/datasets/hres/2016-2022-0012-64x32_equiangular_conservative.zarr",
     "gencast_mean_2020": "gs://weatherbench2/datasets/gencast/2020-64x32_equiangular_conservative_mean.zarr",
 }
 

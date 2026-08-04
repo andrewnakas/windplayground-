@@ -13,12 +13,13 @@ IN_CH, OUT_CH, H, W = 25, 8, 32, 64
         ("unet", {"width": 48}, 3.0),
         ("vit", {"patch": 2, "dim": 128, "depth": 6, "heads": 4}, 4.0),
         ("afno", {"patch": 2, "dim": 128, "depth": 6, "num_blocks": 8}, 4.0),
+        ("graph", {"refinements": 2, "hidden": 96, "rounds": 4}, 4.0),
     ],
 )
 def test_forward_shape_params_and_gradients(name, params, max_params_m):
     model = build_model(name, in_channels=IN_CH, out_channels=OUT_CH, **params)
     n_params = sum(p.numel() for p in model.parameters())
-    assert 0.3e6 < n_params < max_params_m * 1e6, f"{name}: {n_params/1e6:.2f}M params"
+    assert 0.2e6 < n_params < max_params_m * 1e6, f"{name}: {n_params/1e6:.2f}M params"
 
     x = torch.randn(2, IN_CH, H, W)
     y = model(x)

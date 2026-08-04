@@ -1,0 +1,114 @@
+"""Per-(variable, lead) affine blend of competitor forecasts (superensemble).
+
+Weights are fit by latitude-weighted least squares on 2018 forecasts
+(GraphCast + Pangu + HRES vs ERA5), then applied to the same members' 2020
+forecasts and scored with the standard evaluator.
+
+Usage: python scripts/blend.py [--members graphcast pangu hres]
+"""
+from __future__ import annotations
+
+import argparse
+
+import numpy as np
+
+from windml.config import ARTIFACTS, DataConfig
+from windml.data.build_cache import load_statics, load_years
+from windml.data.climatology import load_climatology
+from windml.data.competitors import CompetitorForecaster
+from windml.data.dataset import year_range_times
+from windml.eval.forecasters import Forecaster
+from windml.eval.rollout import evaluate_forecaster
+from windml.utils.grid import latitude_weights
+
+CLIM_PATH = ARTIFACTS / "climatology" / "clim_train.npy"
+
+
+class BlendForecaster(Forecaster):
+    def __init__(self, members: list[CompetitorForecaster], weights: np.ndarray, name: str):
+        self.members = members
+        self.weights = weights  # (K, C, n_members + 1) affine: w @ members + b
+        self.name = name
+
+    def forecast(self, init_idx: int, K: int) -> np.ndarray:
+        preds = [m.forecast(init_idx, K) for m in self.members]
+        out = np.full_like(preds[0], np.nan)
+        for k in range(K):
+            fields = [p[k] for p in preds]
+            if not all(np.isfinite(f).all() for f in fields):
+                continue
+            w = self.weights[k]  # (C, M+1)
+            stack = np.stack(fields)  # (M, C, H, W)
+            out[k] = np.einsum("mchw,cm->chw", stack, w[:, :-1]) + w[:, -1:, None]
+        return out
+
+
+def fit_weights(
+    cfg: DataConfig, member_names: list[str], year: int, K: int, lat_w: np.ndarray
+) -> np.ndarray:
+    members = [CompetitorForecaster(cfg, f"{m}_{year}", year) for m in member_names]
+    truth = np.asarray(load_years(cfg, [year]), dtype=np.float32)
+    n_time = truth.shape[0]
+    common = sorted(set.intersection(*(set(m.lookup) for m in members)))
+    common = [t for t in common if 2 <= t < n_time - K]
+    M = len(members)
+    C = truth.shape[1]
+    w_out = np.zeros((K, C, M + 1), dtype=np.float32)
+    sqrt_w = np.sqrt(lat_w)[:, None]
+
+    for k in range(K):
+        preds = []  # (M, N, H, W) per channel handled below
+        rows = [m.forecast(t, K)[k] for m in members[:1] for t in common]
+        # gather all members: (M, N, C, H, W)
+        stack = np.stack(
+            [np.stack([m.forecast(t, K)[k] for t in common]) for m in members]
+        )
+        tgt = np.stack([truth[t + k + 1] for t in common])  # (N, C, H, W)
+        ok = np.isfinite(stack).all(axis=(0, 2, 3, 4))
+        if ok.sum() == 0:
+            w_out[k, :, :-1] = 1.0 / M  # fallback: equal weights
+            continue
+        stack, tgt = stack[:, ok], tgt[ok]
+        for c in range(C):
+            X = stack[:, :, c] * sqrt_w  # (M, N, H, W)
+            y = (tgt[:, c] * sqrt_w).ravel()
+            A = np.concatenate(
+                [X.reshape(M, -1), np.ones((1, X[0].size)) * sqrt_w.mean()]
+            ).T
+            coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+            w_out[k, c, :-1] = coef[:-1]
+            w_out[k, c, -1] = coef[-1] * sqrt_w.mean()
+    return w_out
+
+
+def main() -> None:
+    p = argparse.ArgumentParser()
+    p.add_argument("--members", nargs="+", default=["graphcast", "pangu", "hres"])
+    p.add_argument("--leads", type=int, default=20)
+    args = p.parse_args()
+
+    cfg = DataConfig()
+    lat = load_statics(cfg)["latitude"]
+    lat_w = latitude_weights(lat)
+
+    print(f"fitting blend weights on 2018: {args.members}")
+    weights = fit_weights(cfg, args.members, 2018, args.leads, lat_w)
+    np.save(ARTIFACTS / "checkpoints" / "blend_weights.npy", weights)
+
+    members_2020 = [CompetitorForecaster(cfg, f"{m}_2020", 2020) for m in args.members]
+    fc = BlendForecaster(members_2020, weights, "blend_" + "+".join(args.members))
+    truth = np.asarray(load_years(cfg, [2020]), dtype=np.float32)
+    times = year_range_times((2020, 2020))
+    clim = np.asarray(load_climatology(CLIM_PATH))
+    df = evaluate_forecaster(fc, truth, times, clim, lat_w, K=args.leads)
+    df["split"] = "test"
+    out = ARTIFACTS / "results" / f"{fc.name}_test.csv"
+    df.to_csv(out, index=False)
+    print(f"wrote {out}")
+    show = df[df.variable.isin(["u10", "v10", "wind_speed", "z500", "t2m"])]
+    print(show[show.lead_h.isin([24, 72, 120])]
+          .pivot_table(index="variable", columns="lead_h", values="rmse").round(3))
+
+
+if __name__ == "__main__":
+    main()
