@@ -7,7 +7,7 @@ model:
     width: 96
 train:
   batch_size: 16
-  max_steps: 30000
+  max_steps: 15000
   lr: 3.0e-4
   warmup_steps: 1000
   val_every: 1000
