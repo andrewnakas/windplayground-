@@ -160,12 +160,17 @@ GenCast's ensemble mean best at long leads — exactly the published ranking. Pe
 (z500 RMSE 923/1019 at 3/5 d) and climatology (803) also land on the WeatherBench-1
 reference values (936/1033 and 816). The harness is trustworthy.
 
-**2. At CPU scale, the CNN beats the transformer and the spectral operator.**
-U-Net (1.06M) > ViT (2.77M) > AFNO (2.02M) on every wind variable. This is not evidence
-against Stormer or FourCastNet — it is the expected regime effect: attention and spectral
-token-mixing have weaker inductive biases than convolution and need far more data and
-compute before they overtake it. Our budget was ~2 epochs of 5.625° ERA5 on 4 CPU cores;
-Stormer used 1.4° and orders of magnitude more compute.
+**2. At CPU scale, the CNN beats the transformer, the spectral operator, and the GNN.**
+On 10m wind speed RMSE at 72 h: U-Net 2.44 (1.06M params) < ViT 2.76 (2.77M) < AFNO 2.82
+(2.02M) < mesh-GNN 3.31 (0.72M). This is not evidence against Stormer, FourCastNet, or
+GraphCast — it is the expected regime effect. Attention, spectral token-mixing, and
+message passing all have weaker inductive biases than convolution and need far more data
+and compute before they overtake it; our budget was ~2 epochs of 5.625° ERA5 on 4 CPU
+cores. The GNN is additionally handicapped by construction: a single 642-node icosphere
+for 2048 grid points is a severe bottleneck, where GraphCast uses a *multi*-mesh (six
+refinement levels at once, 40,962 nodes) so that both local and hemispheric interactions
+have short paths. Reproducing GraphCast's architecture at 1/50th the mesh and 1/50th the
+parameters reproduces its structure, not its skill.
 
 **3. Over-parameterized post-processing does *not* transfer across model versions
 (negative result).** A 1M-parameter U-Net corrector trained on GraphCast's published 2018

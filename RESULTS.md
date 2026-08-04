@@ -32,6 +32,7 @@ published forecasts, at the resolution everything here is scored on.
 | unet                       | 1.275 | 2.989 | 3.941 |
 | vit                        | 1.678 | 3.408 | 4.051 |
 | afno                       | 1.757 | 3.478 | 4.141 |
+| graph                      | 2.341 | 3.805 | 4.502 |
 | vit_ft2                    | 1.536 | 3.118 | 3.795 |
 | unet_ft2                   | 1.183 | 2.665 | 3.59  |
 | unet_ft4                   | 1.172 | 2.535 | 3.423 |
@@ -54,6 +55,7 @@ published forecasts, at the resolution everything here is scored on.
 | unet                       | 1.37  | 3.134 | 4.126 |
 | vit                        | 1.77  | 3.575 | 4.222 |
 | afno                       | 1.862 | 3.684 | 4.369 |
+| graph                      | 2.553 | 3.87  | 4.349 |
 | vit_ft2                    | 1.637 | 3.284 | 3.987 |
 | unet_ft2                   | 1.271 | 2.837 | 3.829 |
 | unet_ft4                   | 1.258 | 2.696 | 3.657 |
@@ -76,6 +78,7 @@ published forecasts, at the resolution everything here is scored on.
 | unet                       | 1.208 | 2.439 | 2.953 |
 | vit                        | 1.56  | 2.76  | 3.068 |
 | afno                       | 1.631 | 2.818 | 3.14  |
+| graph                      | 2.181 | 3.311 | 3.652 |
 | vit_ft2                    | 1.458 | 2.603 | 2.974 |
 | unet_ft2                   | 1.135 | 2.237 | 2.759 |
 | unet_ft4                   | 1.136 | 2.172 | 2.691 |
@@ -98,6 +101,7 @@ published forecasts, at the resolution everything here is scored on.
 | unet                       | 1.948 | 4.373 | 5.789 |
 | vit                        | 2.516 | 4.967 | 5.935 |
 | afno                       | 2.626 | 5.089 | 6.098 |
+| graph                      | 3.393 | 5.507 | 6.509 |
 | vit_ft2                    | 2.313 | 4.556 | 5.558 |
 | unet_ft2                   | 1.804 | 3.881 | 5.212 |
 | unet_ft4                   | 1.778 | 3.685 | 4.946 |
@@ -120,6 +124,7 @@ published forecasts, at the resolution everything here is scored on.
 | unet                       | 2.076 | 4.436 | 5.733 |
 | vit                        | 2.64  | 5.059 | 5.881 |
 | afno                       | 2.756 | 5.202 | 6.053 |
+| graph                      | 3.686 | 5.478 | 6.181 |
 | vit_ft2                    | 2.439 | 4.64  | 5.509 |
 | unet_ft2                   | 1.933 | 4.038 | 5.325 |
 | unet_ft4                   | 1.905 | 3.836 | 5.07  |
@@ -129,7 +134,7 @@ published forecasts, at the resolution everything here is scored on.
 | gencast_mean_2020          | 0.698 | 1.467 | 2.489 |
 | graphcast_corrected        | 0.677 | 1.611 | 2.929 |
 | graphcast_affine           | 0.667 | 1.45  | 2.59  |
-| blend_graphcast+pangu+hres | 0.643 | 1.358 | 2.402 |
+| blend_graphcast+pangu+hres | 0.643 | 1.359 | 2.402 |
 | avg4                       | 0.646 | 1.349 | 2.361 |
 
 ## z500 — RMSE (m²/s²) at 24/72/120 h
@@ -142,6 +147,7 @@ published forecasts, at the resolution everything here is scored on.
 | unet                       | 189.502 | 539.071 |  800.055 |
 | vit                        | 258.079 | 660.617 |  867.547 |
 | afno                       | 273.982 | 692.709 |  908.632 |
+| graph                      | 385.216 | 793.787 |  994.675 |
 | vit_ft2                    | 234.156 | 585.789 |  793.781 |
 | unet_ft2                   | 172.112 | 474.145 |  718.226 |
 | unet_ft4                   | 167.976 | 447.312 |  675.217 |
@@ -150,8 +156,8 @@ published forecasts, at the resolution everything here is scored on.
 | graphcast_2020             |  34.503 | 112.924 |  256.272 |
 | gencast_mean_2020          |  33.934 | 112.233 |  245.855 |
 | graphcast_corrected        |  35.786 | 127.281 |  282.836 |
-| graphcast_affine           |  34.423 | 112.658 |  255.637 |
-| blend_graphcast+pangu+hres |  30.183 |  98.984 |  229.189 |
+| graphcast_affine           |  34.455 | 112.791 |  255.453 |
+| blend_graphcast+pangu+hres |  30.032 |  98.835 |  229.22  |
 | avg4                       |  29.911 |  98.429 |  225.859 |
 
 ## t2m — RMSE (K) at 24/72/120 h
@@ -164,6 +170,7 @@ published forecasts, at the resolution everything here is scored on.
 | unet                       | 1.064 | 1.955 | 2.67  |
 | vit                        | 1.189 | 2.246 | 2.966 |
 | afno                       | 1.243 | 2.351 | 3.091 |
+| graph                      | 1.593 | 2.946 | 3.8   |
 | vit_ft2                    | 1.169 | 2.117 | 2.784 |
 | unet_ft2                   | 0.991 | 1.712 | 2.323 |
 | unet_ft4                   | 1     | 1.68  | 2.257 |
@@ -172,8 +179,8 @@ published forecasts, at the resolution everything here is scored on.
 | graphcast_2020             | 0.351 | 0.602 | 0.997 |
 | gencast_mean_2020          | 0.335 | 0.587 | 0.933 |
 | graphcast_corrected        | 0.352 | 0.614 | 1.018 |
-| graphcast_affine           | 0.351 | 0.602 | 0.996 |
-| blend_graphcast+pangu+hres | 0.336 | 0.569 | 0.917 |
+| graphcast_affine           | 0.351 | 0.602 | 0.995 |
+| blend_graphcast+pangu+hres | 0.336 | 0.569 | 0.919 |
 | avg4                       | 0.35  | 0.567 | 0.899 |
 
 ## 10m wind speed — ACC at 24/72/120 h
@@ -186,6 +193,7 @@ published forecasts, at the resolution everything here is scored on.
 | unet                       | 0.942 | 0.762 |  0.653 |
 | vit                        | 0.9   | 0.659 |  0.569 |
 | afno                       | 0.891 | 0.645 |  0.555 |
+| graph                      | 0.793 | 0.449 |  0.353 |
 | vit_ft2                    | 0.913 | 0.696 |  0.587 |
 | unet_ft2                   | 0.948 | 0.792 |  0.679 |
 | unet_ft4                   | 0.948 | 0.799 |  0.683 |
@@ -208,6 +216,7 @@ published forecasts, at the resolution everything here is scored on.
 | unet                       |     219.1 |     227.7 |      133.7 |     222.6 |     218.1 |      125.9 |            210.5 |            184.2 |              99.7 |
 | vit                        |     319.8 |     273.7 |      140.2 |     316.8 |     262.9 |      131.2 |            300.9 |            221.5 |             107.5 |
 | afno                       |     339.7 |     281.3 |      145.5 |     338.5 |     274   |      139.3 |            319.3 |            228.3 |             112.3 |
+| graph                      |     485.8 |     317.1 |      166.9 |     501.1 |     292.9 |      138.2 |            460.7 |            285.7 |             146.9 |
 | vit_ft2                    |     284.3 |     241.8 |      125   |     285.4 |     233.4 |      118.3 |            274.6 |            203.3 |             101.1 |
 | unet_ft2                   |     196.1 |     192.2 |      112.8 |     199.3 |     187.9 |      109.7 |            191.7 |            160.6 |              86.6 |
 | unet_ft4                   |     193.4 |     177.9 |      103   |     196.3 |     173.6 |      100.3 |            192.1 |            153.1 |              82   |
