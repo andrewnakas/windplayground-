@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import xarray as xr
 
-from windml.config import STATIC_VARIABLES, VARIABLES, DataConfig
+from windml.config import STATIC_VARIABLES, DataConfig, active_variables
 
 
 def open_wb2(url: str) -> xr.Dataset:
@@ -21,7 +21,8 @@ def open_wb2(url: str) -> xr.Dataset:
 
 
 def _cache_root(cfg: DataConfig) -> Path:
-    return Path(cfg.cache_dir) / f"era5_{cfg.grid}"
+    suffix = "" if cfg.variable_set == "core" else f"_{cfg.variable_set}"
+    return Path(cfg.cache_dir) / f"era5_{cfg.grid}{suffix}"
 
 
 def year_path(cfg: DataConfig, year: int) -> Path:
@@ -32,10 +33,10 @@ def statics_path(cfg: DataConfig) -> Path:
     return _cache_root(cfg) / "statics.npz"
 
 
-def _fetch_year(ds: xr.Dataset, year: int, retries: int = 4) -> np.ndarray:
+def _fetch_year(ds: xr.Dataset, year: int, variables, retries: int = 4) -> np.ndarray:
     sel = ds.sel(time=slice(f"{year}-01-01", f"{year}-12-31"))
     fields = []
-    for var in VARIABLES:
+    for var in variables:
         da = sel[var["name"]]
         if var["level"] is not None:
             da = da.sel(level=var["level"])
@@ -75,7 +76,7 @@ def build_cache(cfg: DataConfig, years: list[int], verbose: bool = True) -> None
                 print(f"{year}: cached")
             continue
         t0 = _time.time()
-        arr = _fetch_year(ds, year)
+        arr = _fetch_year(ds, year, active_variables(cfg.variable_set))
         out.parent.mkdir(parents=True, exist_ok=True)
         tmp = out.with_suffix(".tmp.npy")
         np.save(tmp, arr)

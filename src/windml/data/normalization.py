@@ -11,18 +11,20 @@ from pathlib import Path
 
 import numpy as np
 
-from windml.config import CHANNELS
 
 
-def compute_stats(train_array: np.ndarray) -> dict:
+
+def compute_stats(train_array: np.ndarray, channels: list[str] | None = None) -> dict:
     """train_array: (time, channel, lat, lon) float32."""
     x = train_array
     mean = x.mean(axis=(0, 2, 3), dtype=np.float64)
     std = x.std(axis=(0, 2, 3), dtype=np.float64)
     diff = np.diff(x[:, :, :, :], axis=0)
     diff_std = diff.std(axis=(0, 2, 3), dtype=np.float64)
+    if channels is None:
+        from windml.config import CHANNELS as channels
     return {
-        "channels": CHANNELS,
+        "channels": list(channels),
         "mean": mean.tolist(),
         "std": std.tolist(),
         "diff_std": diff_std.tolist(),

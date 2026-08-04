@@ -1,0 +1,21 @@
+# The literature-anchor attempt: vertical structure + direct lead + wider net.
+# Rasp & Thuerey 2021 reach z500 268 at 3 days with a ~6.3M-param ResNet that
+# sees z and t through the depth of the atmosphere and predicts 72h in one
+# shot. This config matches all three of those choices as closely as our
+# compute allows.
+run_name: unet_levels
+data:
+  variable_set: levels          # 20 channels: the 8 scored + 12 more levels
+model:
+  name: unet
+  two_frame: true
+  params:
+    width: 80                   # ~2.9M params, between our 1.06M and their 6.3M
+train:
+  batch_size: 16
+  max_steps: 24000
+  lr: 4.0e-4
+  warmup_steps: 800
+  val_every: 1000
+  direct_lead_h: 72             # one shot to 3 days, like their direct model
+  time_budget_hours: 3.5

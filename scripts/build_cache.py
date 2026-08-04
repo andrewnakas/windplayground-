@@ -17,8 +17,8 @@ from windml.data.climatology import compute_climatology, save_climatology
 from windml.data.dataset import year_range_times
 from windml.data.normalization import compute_stats, save_stats
 
-STATS_PATH = ARTIFACTS / "data" / "stats.json"
 CLIM_PATH = ARTIFACTS / "climatology" / "clim_train.npy"
+# climatology is only used for the 8 scored channels, so the core set owns it
 
 
 def main() -> None:
@@ -52,10 +52,13 @@ def main() -> None:
     print(f"computing stats + climatology on {train_span} ...")
     train = load_years(cfg, list(range(train_span[0], train_span[1] + 1)))
     train = np.asarray(train)
-    stats = compute_stats(train)
-    save_stats(stats, STATS_PATH)
-    print(f"stats -> {STATS_PATH}")
+    stats = compute_stats(train, cfg.channels)
+    save_stats(stats, cfg.stats_path)
+    print(f"stats -> {cfg.stats_path}")
 
+    if cfg.variable_set != "core":
+        print("skipping climatology: the core set already provides it")
+        return
     times = year_range_times(train_span)
     clim = compute_climatology(train, times)
     save_climatology(clim, CLIM_PATH)
