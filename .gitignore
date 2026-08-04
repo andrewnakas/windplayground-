@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# large artifacts: data cache and climatology are rebuildable; keep results, figures,
+# stats, and small checkpoints in git
+artifacts/data/
+artifacts/climatology/
