@@ -43,6 +43,22 @@ class DressedEnsemble:
         return mean[None] + noise * self.spread[None, :K, :, None, None]
 
 
+class MultiModelEnsemble:
+    """The members ARE the models — a classic multi-model ensemble (MME).
+
+    Disagreement between independently-built forecast systems is a real
+    (if under-dispersed) uncertainty estimate, and it needs no fitting at all,
+    so it can include members that only exist for the test year.
+    """
+
+    def __init__(self, members: list, name: str = "mme"):
+        self.members = members
+        self.name = name
+
+    def ensemble(self, init_idx: int, K: int) -> np.ndarray:
+        return np.stack([m.forecast(init_idx, K) for m in self.members])
+
+
 def spread_from_scores(scores: pd.DataFrame, K: int) -> np.ndarray:
     """Build a (K, C) spread array from an evaluator results CSV (RMSE rows)."""
     spread = np.zeros((K, len(CHANNELS)), dtype=np.float32)
