@@ -47,7 +47,7 @@ class DataConfig:
 class ModelConfig:
     name: str = "unet"
     params: dict[str, Any] = field(default_factory=dict)
-    two_frame_input: bool = True  # feed t and t-6h states (GraphCast-style)
+    two_frame: bool = True  # feed t and t-6h states (GraphCast-style)
 
 
 @dataclass
