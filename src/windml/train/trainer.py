@@ -106,10 +106,13 @@ class Trainer:
         return total / max(n, 1)
 
     def save(self, name: str, step: int, val_loss: float, best_val: float | None = None) -> None:
+        # optimizer moments (2x the model size) are only needed to resume, so
+        # they go in last.pt and not in the best.pt we keep as the artifact
+        payload_opt = {"opt_state": self.opt.state_dict()} if name == "last.pt" else {}
         torch.save(
             {
+                **payload_opt,
                 "state_dict": self.model.state_dict(),
-                "opt_state": self.opt.state_dict(),
                 "model_name": self.cfg.model.name,
                 "model_params": self.cfg.model.params,
                 "two_frame": self.cfg.model.two_frame,
