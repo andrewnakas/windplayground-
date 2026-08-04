@@ -68,7 +68,12 @@ def main() -> None:
         from windml.models import build_model  # registry import
 
         payload = torch.load(args.ckpt, map_location="cpu", weights_only=False)
-        model = build_model(payload["model_name"], **payload.get("model_params", {}))
+        mcfg_set = payload.get("variable_set", "core")
+        model = build_model(
+            payload["model_name"],
+            out_channels=len(DataConfig(variable_set=mcfg_set).channels),
+            **payload.get("model_params", {}),
+        )
         model.load_state_dict(payload["state_dict"])
         two_frame = payload.get("two_frame", True)
         name = args.name or payload.get("run_name", "model")

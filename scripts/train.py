@@ -66,7 +66,7 @@ def main() -> None:
     val_ds.norm = norm
 
     model = build_model(cfg.model.name, in_channels=train_ds.n_input_channels,
-                        **cfg.model.params)
+                        out_channels=len(dcfg.channels), **cfg.model.params)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"{cfg.run_name}: {cfg.model.name} with {n_params/1e6:.2f}M params, "
           f"K={cfg.train.rollout_steps}")

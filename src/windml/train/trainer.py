@@ -53,7 +53,8 @@ class Trainer:
         from windml.train.losses import make_channel_weights
 
         self.loss_fn = LatWeightedMSE(
-            lat_weights, make_channel_weights(cfg.train.channel_loss_weights)
+            lat_weights,
+            make_channel_weights(cfg.train.channel_loss_weights, cfg.data.channels),
         ).to(self.device)
         self.opt = torch.optim.AdamW(
             model.parameters(), lr=cfg.train.lr, weight_decay=cfg.train.weight_decay

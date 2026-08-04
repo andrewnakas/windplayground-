@@ -13,9 +13,9 @@ model:
     width: 80                   # ~2.9M params, between our 1.06M and their 6.3M
 train:
   batch_size: 16
-  max_steps: 24000
+  max_steps: 14000
   lr: 4.0e-4
   warmup_steps: 800
   val_every: 1000
   direct_lead_h: 72             # one shot to 3 days, like their direct model
-  time_budget_hours: 3.5
+  time_budget_hours: 4.5

@@ -7,10 +7,15 @@ import torch
 from windml.config import CHANNELS
 
 
-def make_channel_weights(overrides: dict[str, float] | None = None) -> torch.Tensor:
-    w = torch.ones(len(CHANNELS))
+def make_channel_weights(
+    overrides: dict[str, float] | None = None, channels: list[str] | None = None
+) -> torch.Tensor:
+    """Weights over the ACTIVE channel set, which is longer than the scored
+    eight when the multi-level variable set is in use."""
+    names = channels if channels is not None else CHANNELS
+    w = torch.ones(len(names))
     for name, val in (overrides or {}).items():
-        w[CHANNELS.index(name)] = val
+        w[names.index(name)] = val
     return w / w.mean()
 
 
