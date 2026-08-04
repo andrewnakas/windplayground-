@@ -46,6 +46,7 @@ published forecasts, at the resolution everything here is scored on.
 | avg4                       | 0.38  | 0.843 | 1.52  |
 | afno_ft2                   | 1.655 | 3.262 | 3.909 |
 | graph_6k                   | 2.234 | 3.65  | 4.285 |
+| unet_long                  | 1.101 | 2.609 | 3.597 |
 
 ## v10 — RMSE (m/s) at 24/72/120 h
 
@@ -71,6 +72,7 @@ published forecasts, at the resolution everything here is scored on.
 | avg4                       | 0.404 | 0.913 | 1.649 |
 | afno_ft2                   | 1.751 | 3.477 | 4.171 |
 | graph_6k                   | 2.436 | 3.766 | 4.187 |
+| unet_long                  | 1.182 | 2.777 | 3.81  |
 
 ## wind_speed — RMSE (m/s) at 24/72/120 h
 
@@ -96,6 +98,7 @@ published forecasts, at the resolution everything here is scored on.
 | avg4                       | 0.366 | 0.796 | 1.386 |
 | afno_ft2                   | 1.552 | 2.71  | 3.047 |
 | graph_6k                   | 2.105 | 3.327 | 3.75  |
+| unet_long                  | 1.044 | 2.174 | 2.729 |
 
 ## u850 — RMSE (m/s) at 24/72/120 h
 
@@ -121,6 +124,7 @@ published forecasts, at the resolution everything here is scored on.
 | avg4                       | 0.612 | 1.24  | 2.18  |
 | afno_ft2                   | 2.48  | 4.764 | 5.729 |
 | graph_6k                   | 3.256 | 5.357 | 6.347 |
+| unet_long                  | 1.703 | 3.811 | 5.223 |
 
 ## v850 — RMSE (m/s) at 24/72/120 h
 
@@ -146,6 +150,7 @@ published forecasts, at the resolution everything here is scored on.
 | avg4                       | 0.646 | 1.349 | 2.361 |
 | afno_ft2                   | 2.596 | 4.895 | 5.757 |
 | graph_6k                   | 3.544 | 5.292 | 5.808 |
+| unet_long                  | 1.828 | 3.985 | 5.335 |
 
 ## z500 — RMSE (m²/s²) at 24/72/120 h
 
@@ -171,6 +176,7 @@ published forecasts, at the resolution everything here is scored on.
 | avg4                       |  29.911 |  98.429 |  225.859 |
 | afno_ft2                   | 255.329 | 638.589 |  842.459 |
 | graph_6k                   | 364.392 | 772.292 |  976.437 |
+| unet_long                  | 157.081 | 454.87  |  706.465 |
 
 ## t2m — RMSE (K) at 24/72/120 h
 
@@ -196,6 +202,7 @@ published forecasts, at the resolution everything here is scored on.
 | avg4                       | 0.35  | 0.567 | 0.899 |
 | afno_ft2                   | 1.231 | 2.269 | 2.972 |
 | graph_6k                   | 1.499 | 2.798 | 3.624 |
+| unet_long                  | 0.891 | 1.586 | 2.222 |
 
 ## 10m wind speed — ACC at 24/72/120 h
 
@@ -221,6 +228,7 @@ published forecasts, at the resolution everything here is scored on.
 | avg4                       | 0.995 | 0.975 |  0.921 |
 | afno_ft2                   | 0.901 | 0.668 |  0.567 |
 | graph_6k                   | 0.808 | 0.428 |  0.276 |
+| unet_long                  | 0.956 | 0.807 |  0.692 |
 
 ## Wind RMSE relative to GraphCast (%, negative = better)
 
@@ -245,6 +253,7 @@ published forecasts, at the resolution everything here is scored on.
 | avg4                       |      -4.8 |      -7.6 |       -9.9 |      -4.8 |      -7.4 |       -9.7 |             -5.9 |             -7.3 |              -6.3 |
 | afno_ft2                   |     314   |     257.6 |      131.7 |     312.3 |     252.9 |      128.4 |            298.9 |            215.7 |             106.1 |
 | graph_6k                   |     459   |     300.1 |      154   |     473.7 |     282.3 |      129.3 |            441.1 |            287.5 |             153.6 |
+| unet_long                  |     175.4 |     186   |      113.3 |     178.3 |     181.9 |      108.6 |            168.3 |            153.2 |              84.6 |
 
 ## Probabilistic: wind CRPS (m/s)
 
