@@ -31,6 +31,8 @@ def main() -> None:
     p.add_argument("--time-budget-hours", type=float, default=None)
     p.add_argument("--finetune-rollout", type=int, default=None, help="override K")
     p.add_argument("--init-ckpt", default=None)
+    p.add_argument("--auto-resume", action="store_true",
+                   help="continue from artifacts/checkpoints/<run>/last.pt if present")
     p.add_argument("--run-name", default=None)
     args = p.parse_args()
 
@@ -73,7 +75,13 @@ def main() -> None:
     out_dir = ARTIFACTS / "checkpoints" / cfg.run_name
     trainer = Trainer(cfg, model, train_ds, val_ds, latitude_weights(
         load_statics(dcfg)["latitude"]), out_dir)
-    result = trainer.train(benchmark_steps=args.benchmark)
+    start_step, best_val = trainer.load_resume_state() if args.auto_resume else (0, float("inf"))
+    if start_step >= cfg.train.max_steps:
+        print(f"already at {start_step}/{cfg.train.max_steps} steps; nothing to do")
+        return
+    result = trainer.train(
+        benchmark_steps=args.benchmark, start_step=start_step, best_val=best_val
+    )
     print(result)
 
 
