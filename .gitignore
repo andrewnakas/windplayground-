@@ -9,3 +9,4 @@ __pycache__/
 # stats, and small checkpoints in git
 artifacts/data/
 artifacts/climatology/
+artifacts/checkpoints/**/*.out
