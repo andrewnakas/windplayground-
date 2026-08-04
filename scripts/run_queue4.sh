@@ -7,16 +7,26 @@ PY=${PY:-.venv/bin/python}
 cd "$(dirname "$0")/.."
 run() { echo "=== $1 @ $(date -u +%H:%M:%S) ==="; shift; $PY "$@" 2>&1 | tail -4; }
 
+# skip an evaluation whose result CSV already exists (makes relaunch cheap)
+run_eval() {
+  local label=$1 name=$2; shift 2
+  if [ -f "artifacts/results/${name}_test.csv" ]; then
+    echo "=== $label: already evaluated, skipping ==="
+    return 0
+  fi
+  run "$label" "$@"
+}
+
 # AFNO rollout fine-tune, completing the K=2 curriculum across all families
 run afno_ft2 scripts/train.py --config configs/afno.yaml --run-name afno_ft2 \
   --finetune-rollout 2 --max-steps 2000 \
   --init-ckpt artifacts/checkpoints/afno/best.pt --auto-resume
-run afno_ft2_eval scripts/evaluate.py --ckpt artifacts/checkpoints/afno_ft2/best.pt \
+run_eval afno_ft2_eval afno_ft2 scripts/evaluate.py --ckpt artifacts/checkpoints/afno_ft2/best.pt \
   --name afno_ft2
 
 # Continue the GNN to 6000 steps (warm cosine restart from step 3000).
 run graph_long scripts/train.py --config configs/graph.yaml --max-steps 6000 --auto-resume
-run graph_long_eval scripts/evaluate.py --ckpt artifacts/checkpoints/graph/best.pt \
+run_eval graph_long_eval graph_6k scripts/evaluate.py --ckpt artifacts/checkpoints/graph/best.pt \
   --name graph_6k
 
 echo "=== stage 4 complete @ $(date -u +%H:%M:%S) ==="
