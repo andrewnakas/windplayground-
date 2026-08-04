@@ -21,6 +21,19 @@ from windml.eval.forecasters import Forecaster
 from windml.utils.grid import time_encodings
 
 
+def load_corrector(payload: dict) -> torch.nn.Module:
+    """Rebuild a trained corrector from its checkpoint payload."""
+    from windml.models import build_model
+
+    model = build_model(
+        payload["model_name"],
+        in_channels=payload["in_channels"],
+        **payload.get("model_params", {}),
+    )
+    model.load_state_dict(payload["state_dict"])
+    return model
+
+
 class CorrectorDataset(Dataset):
     """(init, lead) pairs from a stored competitor forecast vs ERA5 truth."""
 

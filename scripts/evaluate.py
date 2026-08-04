@@ -32,18 +32,6 @@ STATS_PATH = ARTIFACTS / "data" / "stats.json"
 CLIM_PATH = ARTIFACTS / "climatology" / "clim_train.npy"
 
 
-def build_or_load_corrector(payload: dict) -> torch.nn.Module:
-    from windml.models import build_model
-
-    model = build_model(
-        payload["model_name"],
-        in_channels=payload["in_channels"],
-        **payload.get("model_params", {}),
-    )
-    model.load_state_dict(payload["state_dict"])
-    return model
-
-
 def git_sha() -> str:
     try:
         return subprocess.check_output(
@@ -94,10 +82,14 @@ def main() -> None:
             cfg, args.competitor, year, display_name=args.name or args.competitor
         )
         if args.corrector_ckpt:
-            from windml.train.corrector import CorrectedForecaster, CorrectorDataset
+            from windml.train.corrector import (
+                CorrectedForecaster,
+                CorrectorDataset,
+                load_corrector,
+            )
 
             payload = torch.load(args.corrector_ckpt, map_location="cpu", weights_only=False)
-            corr_model = build_or_load_corrector(payload)
+            corr_model = load_corrector(payload)
             corr_ds = CorrectorDataset(cfg, args.competitor, year, norm)
             fc = CorrectedForecaster(
                 fc, corr_model, corr_ds, args.name or f"{args.competitor}+corr"
