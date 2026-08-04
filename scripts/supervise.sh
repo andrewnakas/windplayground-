@@ -25,7 +25,7 @@ fi
 SNAP=artifacts/checkpoints/_running
 rm -rf "$SNAP"
 mkdir -p "$SNAP"
-cp scripts/run_all.sh scripts/run_queue4.sh scripts/run_overnight.sh scripts/run_direct.sh "$SNAP"/
+cp scripts/run_all.sh scripts/run_queue4.sh scripts/run_overnight.sh scripts/run_direct.sh scripts/run_levels.sh "$SNAP"/
 
 echo "no training running -- (re)launching from snapshot @ $(date -u +%H:%M:%S)"
 nohup bash "$SNAP/run_all.sh" >> artifacts/checkpoints/run_all.out 2>&1 &

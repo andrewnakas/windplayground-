@@ -14,20 +14,105 @@ import numpy as np
 
 
 
-def compute_stats(train_array: np.ndarray, channels: list[str] | None = None) -> dict:
-    """train_array: (time, channel, lat, lon) float32."""
-    x = train_array
-    mean = x.mean(axis=(0, 2, 3), dtype=np.float64)
-    std = x.std(axis=(0, 2, 3), dtype=np.float64)
-    diff = np.diff(x[:, :, :, :], axis=0)
-    diff_std = diff.std(axis=(0, 2, 3), dtype=np.float64)
+def compute_stats_streaming(
+    blocks, channels: list[str] | None = None, chunk: int = 1000
+) -> dict:
+    """Same statistics as compute_stats, over an iterable of time blocks.
+
+    Lets the caller feed one year at a time (~240 MB) instead of concatenating
+    39 years (~8.7 GB) into RAM first. Differences are carried across block
+    boundaries, so the result matches processing the whole series at once.
+    """
+    acc = _StatAccumulator()
+    for block in blocks:
+        acc.update(np.asarray(block), chunk)
+    return acc.finalize(channels)
+
+
+class _StatAccumulator:
+    def __init__(self):
+        self.total = self.total_sq = self.d_total = self.d_total_sq = None
+        self.n = self.n_diff = 0
+        self.tail = None
+
+    def update(self, block: np.ndarray, chunk: int = 1000) -> None:
+        C = block.shape[1]
+        if self.total is None:
+            z = lambda: np.zeros(C, dtype=np.float64)  # noqa: E731
+            self.total, self.total_sq = z(), z()
+            self.d_total, self.d_total_sq = z(), z()
+        for start in range(0, block.shape[0], chunk):
+            x = np.asarray(block[start : start + chunk], dtype=np.float64)
+            self.total += x.sum(axis=(0, 2, 3))
+            self.total_sq += np.square(x).sum(axis=(0, 2, 3))
+            self.n += x.shape[0] * x.shape[2] * x.shape[3]
+            d = np.diff(x, axis=0) if self.tail is None else np.diff(
+                np.concatenate([self.tail[None], x]), axis=0
+            )
+            self.d_total += d.sum(axis=(0, 2, 3))
+            self.d_total_sq += np.square(d).sum(axis=(0, 2, 3))
+            self.n_diff += d.shape[0] * d.shape[2] * d.shape[3]
+            self.tail = x[-1]
+
+    def finalize(self, channels: list[str] | None) -> dict:
+        mean = self.total / self.n
+        var = np.maximum(self.total_sq / self.n - mean**2, 0.0)
+        d_mean = self.d_total / self.n_diff
+        d_var = np.maximum(self.d_total_sq / self.n_diff - d_mean**2, 0.0)
+        if channels is None:
+            from windml.config import CHANNELS as channels
+        return {
+            "channels": list(channels),
+            "mean": mean.tolist(),
+            "std": np.sqrt(var).tolist(),
+            "diff_std": np.sqrt(d_var).tolist(),
+        }
+
+
+def compute_stats(
+    train_array: np.ndarray, channels: list[str] | None = None, chunk: int = 1000
+) -> dict:
+    """train_array: (time, channel, lat, lon) float32.
+
+    Accumulates in time chunks rather than reducing the whole array at once:
+    numpy allocates a float64 temporary the size of the input for a reduction
+    with dtype=float64, which is 17 GB for 39 years of the 20-channel set.
+    """
+    n_t, C = train_array.shape[:2]
+    total = np.zeros(C, dtype=np.float64)
+    total_sq = np.zeros(C, dtype=np.float64)
+    d_total = np.zeros(C, dtype=np.float64)
+    d_total_sq = np.zeros(C, dtype=np.float64)
+    n = 0
+    n_diff = 0
+    tail = None  # last frame of the previous chunk, so diffs span boundaries
+
+    for start in range(0, n_t, chunk):
+        x = np.asarray(train_array[start : start + chunk], dtype=np.float64)
+        total += x.sum(axis=(0, 2, 3))
+        total_sq += np.square(x).sum(axis=(0, 2, 3))
+        n += x.shape[0] * x.shape[2] * x.shape[3]
+
+        d = np.diff(x, axis=0) if tail is None else np.diff(
+            np.concatenate([tail[None], x]), axis=0
+        )
+        d_total += d.sum(axis=(0, 2, 3))
+        d_total_sq += np.square(d).sum(axis=(0, 2, 3))
+        n_diff += d.shape[0] * d.shape[2] * d.shape[3]
+        tail = x[-1]
+
+    mean = total / n
+    var = np.maximum(total_sq / n - mean**2, 0.0)
+    d_mean = d_total / n_diff
+    d_var = np.maximum(d_total_sq / n_diff - d_mean**2, 0.0)
+
     if channels is None:
         from windml.config import CHANNELS as channels
     return {
         "channels": list(channels),
         "mean": mean.tolist(),
-        "std": std.tolist(),
-        "diff_std": diff_std.tolist(),
+        "std": np.sqrt(var).tolist(),
+        "diff_std": np.sqrt(d_var).tolist(),
     }
 
 

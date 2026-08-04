@@ -20,7 +20,6 @@ from windml.models import build_model
 from windml.train.trainer import Trainer
 from windml.utils.grid import latitude_weights
 
-STATS_PATH = ARTIFACTS / "data" / "stats.json"
 
 
 def main() -> None:
@@ -52,7 +51,7 @@ def main() -> None:
 
     torch.set_num_threads(4)
     dcfg = cfg.data if isinstance(cfg.data, DataConfig) else DataConfig()
-    stats = load_stats(STATS_PATH)
+    stats = load_stats(dcfg.stats_path)
     norm = Normalizer(stats)
     direct_steps = (cfg.train.direct_lead_h // 6) if cfg.train.direct_lead_h else None
     train_ds = Era5Dataset(

@@ -10,8 +10,13 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from windml.config import CHANNELS
 from windml.data.climatology import climatology_at
 from windml.data.normalization import Normalizer
+
+# extra pressure levels are appended after the scored channels, so slicing the
+# first N keeps a multi-level model comparable with every other row
+N_SCORED = len(CHANNELS)
 
 
 class Forecaster:
@@ -76,7 +81,7 @@ class ModelForecaster(Forecaster):
         curr = self.ds.array[idx].astype(np.float32)  # (B, C, H, W)
         prev = self.ds.array[idx - 1].astype(np.float32) if self.ds.two_frame else None
         static = np.broadcast_to(self.ds.static[None], (B, *self.ds.static.shape))
-        out = np.empty((B, K, C, H, W), dtype=np.float32)
+        out = np.empty((B, K, C, H, W), dtype=np.float32)  # model channels
 
         for k in range(K):
             t_abs = idx + k  # timestamps of the *current* states
@@ -93,7 +98,7 @@ class ModelForecaster(Forecaster):
             if prev is not None:
                 prev = prev_state
             out[:, k] = curr
-        return out
+        return out[:, :, :N_SCORED]
 
 
 class DirectForecaster(Forecaster):
@@ -126,7 +131,7 @@ class DirectForecaster(Forecaster):
         pred = self.model(torch.from_numpy(x)).numpy()
         base = self.ds.array[idx].astype(np.float32)
         out[:, k] = base + pred * self.ds.direct_std
-        return out
+        return out[:, :, :N_SCORED]
 
 
 class StoredForecaster(Forecaster):

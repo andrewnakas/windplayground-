@@ -12,10 +12,10 @@ from pathlib import Path
 import numpy as np
 
 from windml.config import ARTIFACTS, DataConfig
-from windml.data.build_cache import build_cache, load_years
+from windml.data.build_cache import build_cache, load_years, year_path
 from windml.data.climatology import compute_climatology, save_climatology
 from windml.data.dataset import year_range_times
-from windml.data.normalization import compute_stats, save_stats
+from windml.data.normalization import compute_stats_streaming, save_stats
 
 CLIM_PATH = ARTIFACTS / "climatology" / "clim_train.npy"
 # climatology is only used for the 8 scored channels, so the core set owns it
@@ -50,9 +50,12 @@ def main() -> None:
         else cfg.train_years
     )
     print(f"computing stats + climatology on {train_span} ...")
-    train = load_years(cfg, list(range(train_span[0], train_span[1] + 1)))
-    train = np.asarray(train)
-    stats = compute_stats(train, cfg.channels)
+    train_years = list(range(train_span[0], train_span[1] + 1))
+    # one year at a time: concatenating 39 years of the 20-channel set is
+    # ~8.7 GB and gets the process OOM-killed alongside a training run
+    stats = compute_stats_streaming(
+        (np.load(year_path(cfg, y), mmap_mode="r") for y in train_years), cfg.channels
+    )
     save_stats(stats, cfg.stats_path)
     print(f"stats -> {cfg.stats_path}")
 

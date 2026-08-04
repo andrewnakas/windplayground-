@@ -28,7 +28,6 @@ from windml.eval.forecasters import (
 from windml.eval.rollout import evaluate_forecaster
 from windml.utils.grid import latitude_weights
 
-STATS_PATH = ARTIFACTS / "data" / "stats.json"
 CLIM_PATH = ARTIFACTS / "climatology" / "clim_train.npy"
 
 
@@ -60,7 +59,7 @@ def main() -> None:
     truth = np.asarray(load_years(cfg, list(range(span[0], span[1] + 1))), dtype=np.float32)
     times = year_range_times(span)
     clim = np.asarray(load_climatology(CLIM_PATH))
-    stats = load_stats(STATS_PATH)
+    stats = load_stats(cfg.stats_path)
     norm = Normalizer(stats)
     lat = load_statics(cfg)["latitude"]
     lat_w = latitude_weights(lat)
@@ -74,16 +73,20 @@ def main() -> None:
         two_frame = payload.get("two_frame", True)
         name = args.name or payload.get("run_name", "model")
         direct_h = payload.get("direct_lead_h")
+        # a model trained on the multi-level set needs its own cache and stats;
+        # truth and metrics stay on the scored channels either way
+        mcfg = DataConfig(variable_set=payload.get("variable_set", "core"))
+        mnorm = Normalizer(load_stats(mcfg.stats_path))
         if direct_h:
             # one-shot model: scores only its own lead, everything else NaN
             from windml.eval.forecasters import DirectForecaster
 
-            ds = Era5Dataset(cfg, span, norm, rollout_steps=1, two_frame=two_frame,
+            ds = Era5Dataset(mcfg, span, mnorm, rollout_steps=1, two_frame=two_frame,
                              direct_steps=direct_h // 6)
             fc = DirectForecaster(model, ds, name)
         else:
-            ds = Era5Dataset(cfg, span, norm, rollout_steps=1, two_frame=two_frame)
-            fc = ModelForecaster(model, ds, norm, name)
+            ds = Era5Dataset(mcfg, span, mnorm, rollout_steps=1, two_frame=two_frame)
+            fc = ModelForecaster(model, ds, mnorm, name)
     elif args.competitor:
         from windml.data.competitors import CompetitorForecaster
 
