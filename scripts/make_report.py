@@ -32,14 +32,44 @@ ORDER_HINT = [
 ]
 
 
-def load_all() -> pd.DataFrame:
-    frames = []
-    for csv in sorted(RESULTS.glob("*_test.csv")):
-        frames.append(pd.read_csv(csv))
+def load_all(pattern: str = "*_test.csv") -> pd.DataFrame:
+    frames = [pd.read_csv(csv) for csv in sorted(RESULTS.glob(pattern))]
+    if not frames:
+        return pd.DataFrame()
     df = pd.concat(frames, ignore_index=True)
     order = {name: i for i, name in enumerate(ORDER_HINT)}
     df["order"] = df.model.map(lambda m: order.get(m, 99))
     return df.sort_values(["order", "model"])
+
+
+def acc_table(df: pd.DataFrame, variable: str) -> pd.DataFrame:
+    sub = df[(df.variable == variable) & (df.lead_h.isin(HEADLINE_LEADS))]
+    tab = sub.pivot_table(index=["order", "model"], columns="lead_h", values="acc")
+    tab.index = tab.index.droplevel(0)
+    return tab.round(3)
+
+
+def skill_summary(df: pd.DataFrame, reference: str = "graphcast_2020") -> pd.DataFrame:
+    """Percent RMSE change vs a reference model (negative = better)."""
+    if reference not in set(df.model):
+        return pd.DataFrame()
+    ref = df[df.model == reference].set_index(["variable", "lead_h"]).rmse
+    rows = []
+    for model, grp in df.groupby("model", sort=False):
+        if model == reference:
+            continue
+        g = grp.set_index(["variable", "lead_h"]).rmse
+        common = g.index.intersection(ref.index)
+        if not len(common):
+            continue
+        rel = (g.loc[common] / ref.loc[common] - 1.0) * 100
+        rec = {"model": model}
+        for var in ["u10", "v10", "wind_speed"]:
+            for lead in HEADLINE_LEADS:
+                if (var, lead) in rel.index:
+                    rec[f"{var}@{lead}h"] = round(float(rel.loc[(var, lead)]), 1)
+        rows.append(rec)
+    return pd.DataFrame(rows).set_index("model")
 
 
 def rmse_table(df: pd.DataFrame, variable: str) -> pd.DataFrame:
@@ -92,6 +122,26 @@ def main() -> None:
         lines.append("")
         lines.append(tab.to_markdown())
         lines.append("")
+
+    acc = acc_table(df, "wind_speed")
+    if not acc.empty:
+        lines += ["## 10m wind speed — ACC at 24/72/120 h", "", acc.to_markdown(), ""]
+
+    skill = skill_summary(df)
+    if not skill.empty:
+        lines += [
+            "## Wind RMSE relative to GraphCast (%, negative = better)",
+            "",
+            skill.to_markdown(),
+            "",
+        ]
+
+    crps = load_all("*_crps.csv")
+    if not crps.empty:
+        sub = crps[crps.variable.isin(["u10", "v10", "wind_speed"])
+                   & crps.lead_h.isin(HEADLINE_LEADS)]
+        tab = sub.pivot_table(index="model", columns=["variable", "lead_h"], values="crps")
+        lines += ["## Probabilistic: wind CRPS (m/s)", "", tab.round(3).to_markdown(), ""]
 
     curves_figure(df, ["u10", "wind_speed", "z500"], FIGURES / "rmse_curves.png")
     lines.append("![RMSE curves](artifacts/figures/rmse_curves.png)")
