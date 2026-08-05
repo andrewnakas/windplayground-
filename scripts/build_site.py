@@ -230,8 +230,14 @@ def main() -> None:
 
     total = sum(f.stat().st_size for f in DOCS.rglob("*") if f.is_file())
     print(f"docs/ built: {total/1e6:.1f} MB")
-    print("To publish (makes the site PUBLIC — the repo is private):")
-    print("  merge this branch to main, then Settings > Pages > Source: main /docs")
+    # Pages Source is "GitHub Actions"; .github/workflows/pages.yml runs on
+    # pushes to main that touch docs/ and publishes this directory. It has to
+    # live on main -- the github-pages environment only authorizes deployments
+    # whose ref is the default branch, so the same workflow on a side branch is
+    # rejected before its first step.
+    print("To publish: commit docs/, then merge this branch to main and push.")
+    print("  the pages.yml workflow deploys docs/ on every push to main")
+    print("  live at https://andrewnakas.github.io/windplayground-/")
 
 
 if __name__ == "__main__":
