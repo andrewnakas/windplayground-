@@ -51,6 +51,19 @@ def main() -> None:
 
     torch.set_num_threads(4)
     dcfg = cfg.data if isinstance(cfg.data, DataConfig) else DataConfig()
+
+    # Cheap early exit BEFORE touching the data. Loading the training array is
+    # minutes (8.7 GB for the multi-level set), and the queue re-enters every
+    # finished stage on each restart -- so checking the saved step count first
+    # turns a 12-minute no-op into a 1-second one.
+    out_dir = ARTIFACTS / "checkpoints" / cfg.run_name
+    if args.auto_resume and (out_dir / "last.pt").exists():
+        done = int(torch.load(out_dir / "last.pt", map_location="cpu",
+                              weights_only=False).get("step", 0))
+        if done >= cfg.train.max_steps:
+            print(f"already at {done}/{cfg.train.max_steps} steps; nothing to do")
+            return
+
     stats = load_stats(dcfg.stats_path)
     norm = Normalizer(stats)
     direct_steps = (cfg.train.direct_lead_h // 6) if cfg.train.direct_lead_h else None
@@ -76,7 +89,6 @@ def main() -> None:
         model.load_state_dict(payload["state_dict"])
         print(f"initialized from {args.init_ckpt} (step {payload.get('step')})")
 
-    out_dir = ARTIFACTS / "checkpoints" / cfg.run_name
     trainer = Trainer(cfg, model, train_ds, val_ds, latitude_weights(
         load_statics(dcfg)["latitude"]), out_dir)
     start_step, best_val = trainer.load_resume_state() if args.auto_resume else (0, float("inf"))
