@@ -17,8 +17,10 @@ regridded by WeatherBench 2.
 
 | 10m wind speed RMSE (m/s) | 24 h | 72 h | 120 h |
 |---|---|---|---|
-| **avg4** (GraphCast+Pangu+HRES+GenCast-mean) | **0.366** | **0.796** | **1.386** |
+| **avg5** (GraphCast+Pangu+HRES+GenCast-mean+FuXi) | **0.361** | **0.791** | **1.380** |
+| avg4 (same without FuXi) | 0.366 | 0.796 | 1.386 |
 | blend3 (fit on 2018, affine per variable/lead) | 0.369 | 0.803 | 1.421 |
+| FuXi | 0.383 | 0.853 | 1.470 |
 | GraphCast | 0.389 | 0.858 | 1.479 |
 | GenCast (ensemble mean) | 0.393 | 0.862 | 1.474 |
 | Pangu-Weather | 0.416 | 0.909 | 1.551 |
@@ -26,9 +28,11 @@ regridded by WeatherBench 2.
 | our U-Net (1.06M params, 4 CPU cores) | 1.135 | 2.237 | 2.759 |
 | persistence | 2.545 | 3.110 | 3.199 |
 
-The blend is **−5.9% / −7.2% / −6.0%** against the best individual model at 24/72/120 h
-(−8.1% on z500 at 120 h). `avg4` has **zero fitted parameters**; `blend3` fits three per
-(variable, lead) on 2018 and is applied unchanged to 2020.
+The ensemble is **−5.7% / −7.3% / −6.1%** against the best individual model at
+24/72/120 h, with **zero fitted parameters**. Removing HRES — the weakest member by a
+wide margin — makes it *worse* (0.814 at 72 h): it is the only physics-based member, so
+its errors are decorrelated from the ML models', and that is worth more than its skill
+deficit.
 
 What did *not* work, and why it matters: a 1M-parameter U-Net corrector trained on
 GraphCast's 2018 forecasts **degraded** its 2020 forecasts (0.971 vs 0.858 at 72 h),

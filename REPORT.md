@@ -179,14 +179,38 @@ forecasts *degraded* its 2020 forecasts (10m wind speed RMSE 0.97 vs 0.86 at 72 
 high-capacity corrector fits version-specific error structure that no longer exists at
 test time. This is the post-processing analogue of overfitting to a stale model.
 
+**3b. A weaker, differently-built member still improves the ensemble.** HRES is by far
+the worst member on wind (0.998 vs FuXi's 0.853 at 72 h), so dropping it looks like an
+easy win — but removing it makes the average *worse* (0.814 vs 0.791). It is the only
+physics-based member, so its errors are decorrelated from the ML models', and that
+decorrelation is worth more than its individual skill deficit. Ensemble value comes from
+diversity, not from member quality alone. (Conversely, adding FuXi — the strongest
+individual on wind — moved the average only 0.796 → 0.791, since it errs much like the
+other ML members.)
+
 **4. Low-parameter multi-model blending *does* transfer — and beats every frontier
 model.** A per-(variable, lead) affine least-squares blend of GraphCast + Pangu + HRES,
 with weights fit on 2018 and applied unchanged to 2020, beats the best individual
-competitor at every lead: **−5.3% / −6.5% / −3.6% on 10m wind speed** and −11% / −12% /
-−6.8% on z500 at 24/72/120 h. It beats GenCast's ensemble mean too, despite GenCast not
-being a member. Three parameters per (variable, lead) generalize across model versions
-where a million do not — the same distribution shift that broke finding 3 leaves the
-blend untouched.
+competitor at every lead. Three parameters per (variable, lead) generalize across model
+versions where a million do not — the same distribution shift that broke finding 3
+leaves the blend untouched.
+
+Better still, a plain **equal-weight average needs no fitting at all**, so members that
+only exist for the test year (GenCast, FuXi) can join. The five-member average
+(GraphCast + Pangu + HRES + GenCast-mean + FuXi) is our best forecast:
+
+| 10m wind speed RMSE (m/s) | 24 h | 72 h | 120 h |
+|---|---|---|---|
+| **avg5** | **0.361** | **0.791** | **1.380** |
+| best individual (FuXi) | 0.383 | 0.853 | 1.470 |
+| GraphCast | 0.389 | 0.858 | 1.479 |
+
+That is **−5.7% / −7.3% / −6.1%** against the best single model at 24/72/120 h, with
+zero fitted parameters. *Caveat worth stating:* we compared a handful of member
+combinations on the test year, so picking avg5 over avg4 (0.791 vs 0.796) is selection
+on the test set and that 0.6% gap is within noise. The robust claim is the family
+result — a 4–5 member multi-model average beats every individual model by 5–7% — not
+the precise ranking among averages.
 
 ### What a real 0.25° WB2 leaderboard entry would take
 

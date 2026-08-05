@@ -26,6 +26,10 @@ COMPETITOR_URLS = {
     "pangu_2018": "gs://weatherbench2/datasets/pangu/2018-2022_0012_64x32_equiangular_conservative.zarr",
     "hres_2020": "gs://weatherbench2/datasets/hres/2016-2022-0012-64x32_equiangular_conservative.zarr",
     "hres_2018": "gs://weatherbench2/datasets/hres/2016-2022-0012-64x32_equiangular_conservative.zarr",
+    "fuxi_2020": "gs://weatherbench2/datasets/fuxi/2020-64x32_equiangular_conservative.zarr",
+    # NeuralGCM (the hybrid physics/ML model) would add useful diversity, but
+    # its 64x32 release carries no 10m wind variables, so it cannot be a member
+    # of a wind ensemble: "neuralgcm_deterministic/2020-64x32...zarr"
     "gencast_mean_2020": "gs://weatherbench2/datasets/gencast/2020-64x32_equiangular_conservative_mean.zarr",
 }
 
