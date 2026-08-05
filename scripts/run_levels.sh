@@ -16,6 +16,12 @@ run_eval() {
 
 # the anchor attempt runs first: loss focused on z500/t850 (their direct model
 # optimizes those two, our 20-channel average sent ~1/20th of the signal to z500)
+# full-resolution ResNet: the architecture family that reaches the anchor
+run resnet72 scripts/train.py --config configs/resnet72.yaml \
+  --run-name resnet72 --auto-resume
+run_eval resnet72_eval resnet72 scripts/evaluate.py \
+  --ckpt artifacts/checkpoints/resnet72/best.pt --name resnet72
+
 run anchor72 scripts/train.py --config configs/anchor72.yaml \
   --run-name anchor72 --auto-resume
 run_eval anchor72_eval anchor72 scripts/evaluate.py \

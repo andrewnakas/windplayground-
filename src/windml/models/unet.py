@@ -12,10 +12,10 @@ import torch.nn as nn
 class CircularConv2d(nn.Module):
     """Conv2d with circular padding in longitude (last axis), zeros in latitude."""
 
-    def __init__(self, in_ch: int, out_ch: int, kernel_size: int = 3):
+    def __init__(self, in_ch: int, out_ch: int, kernel_size: int = 3, dilation: int = 1):
         super().__init__()
-        self.pad = kernel_size // 2
-        self.conv = nn.Conv2d(in_ch, out_ch, kernel_size)
+        self.pad = dilation * (kernel_size // 2)
+        self.conv = nn.Conv2d(in_ch, out_ch, kernel_size, dilation=dilation)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = torch.nn.functional.pad(x, (self.pad, self.pad, 0, 0), mode="circular")

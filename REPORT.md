@@ -212,6 +212,48 @@ on the test set and that 0.6% gap is within noise. The robust claim is the famil
 result — a 4–5 member multi-model average beats every individual model by 5–7% — not
 the precise ranking among averages.
 
+### Chasing the 5.625° anchor: how far we got, and what actually blocks it
+
+Rasp & Thuerey 2021 reach **z500 RMSE 268 at 3 days**. We set out to match it from
+scratch. Progression, each step a deliberate change:
+
+| model | z500 @3d | what changed |
+|---|---|---|
+| `unet` (9.5k steps) | 539 | baseline |
+| `unet_long` (45k steps) | 455 | 4.7× training |
+| `unet_long_ft2` | 435 | + K=2 rollout curriculum |
+| `unet_long_ft4` | 412 | + K=4 |
+| `levels72` | 394 | + vertical inputs, direct 72h target |
+| `anchor72` | **387** | + 6.6M params, z500-weighted loss |
+| *target* | *268* | |
+
+**We did not reach it — we stalled at 387, 44% above.** The last two changes are worth
+dwelling on because they were my main hypotheses and they mostly failed: going from
+2.95M to 6.6M parameters *and* weighting the loss 9× onto z500 together bought 1.6%.
+
+Benchmarking the architecture finally explained why. Their model is a
+**fully-convolutional ResNet that never pools** — it holds 32×64 through 19 residual
+blocks. Our U-Net pools to 8×16 at the bottleneck, discarding much of a field that is
+only 2048 points to begin with. Measured on this machine:
+
+| architecture | s/step (batch 16) | 14k steps |
+|---|---|---|
+| U-Net (pools 4×), 6.6M params | 1.1 | 4.3 h |
+| full-res ResNet, 1.7M params | 10.6 | 41 h |
+| full-res ResNet at their size (19 blocks, 128 filters) | ~25 (est.) | ~4 days |
+
+So the gap is not mainly pretraining or capacity or loss design — **the architecture
+that reaches 268 costs an order of magnitude more per step precisely because it refuses
+to downsample**, and that is what 4 CPU cores cannot buy. `configs/resnet72.yaml` spends
+the same wall-clock on a small full-resolution model (0.5M params) instead of a large
+pooled one (6.6M), as a controlled test of whether resolution is the binding constraint.
+
+Honest bottom line on this goal: **the anchor was not met.** What remains untried is
+their CMIP6 pretraining, and what is out of reach is the compute their architecture
+needs. Note also that our best *forecast* — the 5-member ensemble at z500 98 — is far
+past 268, but that blends other groups' 0.25° forecasts and is a different achievement
+entirely; the from-scratch number is 387.
+
 ### What a real 0.25° WB2 leaderboard entry would take
 
 For scope honesty: ~2 TB ERA5 at 0.25°, a 30–300M-param model, and O(10²–10³) A100-days

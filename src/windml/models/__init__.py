@@ -11,6 +11,10 @@ def build_model(name: str, **params: Any) -> torch.nn.Module:
         from windml.models.unet import UNet
 
         return UNet(**params)
+    if name == "resnet":
+        from windml.models.resnet import WeatherResNet
+
+        return WeatherResNet(**params)
     if name == "vit":
         from windml.models.vit import WeatherViT
 
