@@ -68,29 +68,31 @@ def main() -> None:
         from windml.models import build_model  # registry import
 
         payload = torch.load(args.ckpt, map_location="cpu", weights_only=False)
-        mcfg_set = payload.get("variable_set", "core")
-        model = build_model(
-            payload["model_name"],
-            out_channels=len(DataConfig(variable_set=mcfg_set).channels),
-            **payload.get("model_params", {}),
-        )
-        model.load_state_dict(payload["state_dict"])
         two_frame = payload.get("two_frame", True)
         name = args.name or payload.get("run_name", "model")
         direct_h = payload.get("direct_lead_h")
-        # a model trained on the multi-level set needs its own cache and stats;
-        # truth and metrics stay on the scored channels either way
+        # A model trained on the multi-level set needs its own cache and stats.
+        # Build the dataset FIRST: only it knows the input-channel count, which
+        # differs per variable set (49 for 'levels' vs 25 for 'core').
         mcfg = DataConfig(variable_set=payload.get("variable_set", "core"))
         mnorm = Normalizer(load_stats(mcfg.stats_path))
+        ds = Era5Dataset(
+            mcfg, span, mnorm, rollout_steps=1, two_frame=two_frame,
+            direct_steps=(direct_h // 6) if direct_h else None,
+        )
+        model = build_model(
+            payload["model_name"],
+            in_channels=ds.n_input_channels,
+            out_channels=len(mcfg.channels),
+            **payload.get("model_params", {}),
+        )
+        model.load_state_dict(payload["state_dict"])
         if direct_h:
             # one-shot model: scores only its own lead, everything else NaN
             from windml.eval.forecasters import DirectForecaster
 
-            ds = Era5Dataset(mcfg, span, mnorm, rollout_steps=1, two_frame=two_frame,
-                             direct_steps=direct_h // 6)
             fc = DirectForecaster(model, ds, name)
         else:
-            ds = Era5Dataset(mcfg, span, mnorm, rollout_steps=1, two_frame=two_frame)
             fc = ModelForecaster(model, ds, mnorm, name)
     elif args.competitor:
         from windml.data.competitors import CompetitorForecaster
