@@ -1,0 +1,14 @@
+# Wider U-Net: does capacity or training length bind at this scale?
+run_name: unet_wide
+model:
+  name: unet
+  two_frame: true
+  params:
+    width: 96
+train:
+  batch_size: 16
+  max_steps: 15000
+  lr: 3.0e-4
+  warmup_steps: 1000
+  val_every: 1000
+  time_budget_hours: 6.0

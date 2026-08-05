@@ -1,0 +1,33 @@
+# Controlled test of the resolution hypothesis, at roughly equal wall-clock.
+#
+# Rasp & Thuerey's 268 comes from a fully-convolutional ResNet that keeps the
+# grid at 32x64 throughout. Our U-Net pools to 8x16 at the bottleneck. Measured
+# on this box a full-res ResNet costs ~10.6 s/step against the U-Net's ~1.1, so
+# their exact model (19 blocks, 128 filters) would need >40 h -- out of reach.
+#
+# This config spends the SAME wall-clock as anchor72 on a small full-res model
+# instead of a big pooling one: 0.5M params at full resolution vs 6.6M pooled.
+# If resolution is what binds, it should show up despite 13x fewer parameters.
+# Dilations cycle 1-2-4-8 so the receptive field still reaches hemispheric
+# scale without pooling.
+run_name: resnet72
+data:
+  variable_set: levels
+model:
+  name: resnet
+  two_frame: true
+  params:
+    width: 64
+    n_blocks: 6
+    dropout: 0.1
+train:
+  batch_size: 16
+  max_steps: 8000
+  lr: 4.0e-4
+  warmup_steps: 600
+  val_every: 500
+  direct_lead_h: 72
+  time_budget_hours: 5.0
+  channel_loss_weights:
+    z500: 20.0
+    t850: 6.0

@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# large artifacts: data cache and climatology are rebuildable; keep results, figures,
+# stats, and small checkpoints in git
+artifacts/data/
+artifacts/climatology/
+artifacts/checkpoints/**/*.out
+# resume state (optimizer moments): machine-local and rebuildable; the
+# best.pt artifacts are what reproduce the reported results
+artifacts/checkpoints/**/last.pt
+.venv-dyn/
+# ephemeral snapshot of the queue scripts taken by scripts/supervise.sh
+artifacts/checkpoints/_running/

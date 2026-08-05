@@ -1,0 +1,36 @@
+[project]
+name = "windml"
+version = "0.1.0"
+description = "CPU-scale recreations of top global ML wind forecast models, evaluated WeatherBench-style"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "torch>=2.3",
+    "xarray>=2024.3",
+    "zarr>=2.17,<3",
+    "gcsfs>=2024.3",
+    "fsspec>=2024.3",
+    "aiohttp>=3.9",
+    "pyyaml>=6.0",
+    "pandas>=2.2",
+    "matplotlib>=3.8",
+    "tabulate>=0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.4"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

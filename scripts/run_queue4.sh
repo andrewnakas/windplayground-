@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Stage 4: fairness of the architecture comparison.
+# The U-Net got ~9500 steps while AFNO got 5000 and the GNN 3000, and only
+# U-Net/ViT received the rollout curriculum. This evens that out.
+set -u
+PY=${PY:-.venv/bin/python}
+# run from the repo root even when launched from a snapshot copy
+cd "${WINDML_REPO:?set by scripts/supervise.sh}"
+run() { echo "=== $1 @ $(date -u +%H:%M:%S) ==="; shift; $PY "$@" 2>&1 | tail -4; }
+
+# skip an evaluation whose result CSV already exists (makes relaunch cheap)
+run_eval() {
+  local label=$1 name=$2; shift 2
+  if [ -f "artifacts/results/${name}_test.csv" ]; then
+    echo "=== $label: already evaluated, skipping ==="
+    return 0
+  fi
+  run "$label" "$@"
+}
+
+# AFNO rollout fine-tune, completing the K=2 curriculum across all families
+run afno_ft2 scripts/train.py --config configs/afno.yaml --run-name afno_ft2 \
+  --finetune-rollout 2 --max-steps 2000 \
+  --init-ckpt artifacts/checkpoints/afno/best.pt --auto-resume
+run_eval afno_ft2_eval afno_ft2 scripts/evaluate.py --ckpt artifacts/checkpoints/afno_ft2/best.pt \
+  --name afno_ft2
+
+# Continue the GNN to 6000 steps (warm cosine restart from step 3000).
+run graph_long scripts/train.py --config configs/graph.yaml --max-steps 6000 --auto-resume
+run_eval graph_long_eval graph_6k scripts/evaluate.py --ckpt artifacts/checkpoints/graph/best.pt \
+  --name graph_6k
+
+echo "=== stage 4 complete @ $(date -u +%H:%M:%S) ==="

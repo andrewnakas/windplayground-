@@ -1,0 +1,16 @@
+run_name: vit
+model:
+  name: vit
+  two_frame: true
+  params:
+    patch: 4
+    dim: 192
+    depth: 6
+    heads: 4
+train:
+  batch_size: 16
+  max_steps: 8000
+  lr: 3.0e-4
+  warmup_steps: 500
+  val_every: 500
+  time_budget_hours: 3.0

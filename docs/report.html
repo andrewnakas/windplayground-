@@ -1,0 +1,128 @@
+<!doctype html><html lang=en><head><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Research — windplayground</title><style>
+:root{--bg:#0b1020;--panel:#141b30;--line:#26304d;--text:#e8ecf7;--muted:#93a0c0;--accent:#58a6ff;--good:#4ade80}
+@media (prefers-color-scheme: light){:root{--bg:#f7f9fc;--panel:#fff;--line:#dde3ee;--text:#131722;--muted:#5b6478;--accent:#0b62d0;--good:#137a3d}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:32px 20px 80px}
+nav{position:sticky;top:0;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);z-index:10}
+nav .wrap{padding:12px 20px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+nav a{color:var(--muted);text-decoration:none;font-size:14px}
+nav a:hover,nav a.on{color:var(--accent)}
+nav .brand{font-weight:700;color:var(--text);margin-right:auto}
+h1{font-size:30px;line-height:1.25;margin:.4em 0 .3em}
+h2{font-size:22px;margin:1.8em 0 .5em;padding-top:.3em;border-top:1px solid var(--line)}
+h3{font-size:17px;margin:1.4em 0 .4em}
+a{color:var(--accent)}
+code{background:var(--panel);padding:.15em .4em;border-radius:4px;font-size:.9em}
+pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;overflow-x:auto}
+pre code{background:none;padding:0}
+table{border-collapse:collapse;width:100%;margin:1em 0;font-size:14px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:7px 10px;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+thead th{background:var(--panel);position:sticky;top:0}
+tbody tr:nth-child(odd){background:color-mix(in srgb,var(--panel) 45%,transparent)}
+blockquote{border-left:3px solid var(--accent);margin:1em 0;padding:.1em 1em;color:var(--muted)}
+img{max-width:100%;border-radius:10px;border:1px solid var(--line)}
+.lede{color:var(--muted);font-size:17px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin:1.5em 0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card .k{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.card .v{font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;margin:.15em 0}
+.card .s{font-size:13px;color:var(--muted)}
+.win{color:var(--good)}
+.cta{display:inline-block;background:var(--accent);color:#05070f;font-weight:600;padding:10px 18px;border-radius:9px;text-decoration:none;margin:.4em .5em .4em 0}
+.note{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;padding:12px 16px;font-size:14px;color:var(--muted);margin:1.2em 0}
+footer{margin-top:60px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+</style></head><body><nav><div class="wrap">
+<span class="brand">windplayground</span>
+<a href="index.html">Overview</a>
+<a href="viewer/index.html">Wind viewer</a>
+<a href="report.html">Research</a>
+<a href="results.html">Results</a>
+<a href="https://github.com/andrewnakas/windplayground-">GitHub</a>
+</div></nav><div class=wrap><h1>Global Wind Forecasting with Machine Learning — Literature Review</h1>
+<p><em>Survey date: August 2026. This report identifies the top papers, entities, and benchmarks for ML-based global wind forecasting, and maps each leading model family to the small-scale recreation implemented in this repository.</em></p>
+<hr>
+<h2>1. The benchmark landscape</h2>
+<h3>WeatherBench 2 — the canonical global benchmark</h3>
+<p><strong>WeatherBench 2</strong> (Rasp et al., <em>JAMES</em> 2024, Google Research + ECMWF) is the standard evaluation framework for data-driven global weather models. Everything in this repo follows its conventions:</p>
+<ul><li><strong>Ground truth:</strong> ERA5 reanalysis (ECMWF), 1959–present, 0.25° native resolution, with</li></ul>
+<p>  official conservatively-regridded versions at 240×121, 128×64, and <strong>64×32 (5.625°)</strong> —   the grid used here.</p>
+<ul><li><strong>Wind headline variables:</strong> 10m u/v wind components (<code>u10</code>, <code>v10</code>), derived **10m wind</li></ul>
+<p>  speed**, and 850hPa u/v wind (<code>u850</code>, <code>v850</code>). Wind is a headline because it drives the   renewable-energy use case (wind power ∝ v³ in the operating range).</p>
+<ul><li><strong>Metrics:</strong> latitude-weighted RMSE and ACC (anomaly correlation vs. a smoothed</li></ul>
+<p>  climatology) for deterministic forecasts; <strong>CRPS</strong> and spread-skill ratio for ensembles.</p>
+<ul><li><strong>Baselines:</strong> ECMWF IFS <strong>HRES</strong> (the best physics-based deterministic model), IFS <strong>ENS</strong></li></ul>
+<p>  (the 50-member physics ensemble), persistence, and climatology.</p>
+<ul><li><strong>Protocol:</strong> test on held-out recent years (2020 is standard), initialize from analysis</li></ul>
+<p>  states, evaluate at 6h-multiple lead times out to 10–15 days.</p>
+<p>A crucial, under-advertised fact exploited in this project: the WB2 public bucket (<code>gs://weatherbench2</code>) ships the <strong>actual forecast outputs</strong> of the leading models (GraphCast, GenCast incl. full ensemble, Pangu-Weather, FuXi, Aurora, NeuralGCM, HRES, ENS) for 2020 — and for GraphCast also 2018 — pre-regridded to 64×32. This makes head-to-head scoring (and learned post-processing) of the real frontier models possible at small scale.</p>
+<h3>Other relevant benchmarks</h3>
+<ul><li><strong>WeatherBench 1</strong> (Rasp et al. 2020): the original 5.625° benchmark; its published</li></ul>
+<p>  leaderboard numbers are the directly comparable anchors for our from-scratch models.</p>
+<ul><li><strong>ExtremeWeatherBench</strong> (2025/26): high-impact events, including damaging wind.</li><li><strong>Wind-power-specific:</strong> GEFCom (energy forecasting competitions) and the Baidu KDD Cup</li></ul>
+<p>  SDWPF turbine dataset — station/farm scale rather than global; out of scope here but the   natural downstream application.</p>
+<hr>
+<h2>2. Entities and models at the top of the wind benchmarks (mid-2026)</h2>
+<h3>Google DeepMind — GraphCast and GenCast</h3>
+<ul><li><strong>GraphCast</strong> (Lam et al., <em>Science</em> 2023). Multi-mesh <strong>graph neural network</strong>:</li></ul>
+<p>  encode grid → refined icosahedral mesh, 16 rounds of message passing across mesh scales,   decode back to grid. 37M params, 0.25°, trained on ERA5 1979–2017 (~4 weeks on 32 TPUs).   Beat HRES on ~90% of 1380 targets — the deterministic breakthrough. Open weights.   Key training tricks adopted here: <strong>residual (Δ-state) targets scaled by per-variable   6h-difference std</strong>, two input frames (t, t−6h), and <strong>autoregressive rollout fine-tuning</strong>.</p>
+<ul><li><strong>GenCast</strong> (Price et al., <em>Nature</em> 2025). <strong>Conditional diffusion model</strong> generating</li></ul>
+<p>  50-member ensembles at 0.25°, 12h steps. Beats the ECMWF ENS on <strong>97.4% of targets</strong>,   including 10m wind CRPS and regional wind-power aggregates — the current state of the art   for probabilistic wind. Open weights/code (JAX).</p>
+<h3>Huawei — Pangu-Weather</h3>
+<p>Bi et al., <em>Nature</em> 2023. <strong>3D Earth-specific Swin transformer</strong> treating the pressure-level stack as a 3D volume; hierarchical temporal aggregation (1h/3h/6h/24h models) to reduce rollout error accumulation. First ML model to beat operational IFS deterministically on upper-air variables. Open ONNX weights.</p>
+<h3>ECMWF — AIFS</h3>
+<p>The first ML forecast system run <strong>operationally</strong> by a weather center (v1 2024–25, ENS variant 2025). GNN-transformer hybrid on an octahedral reduced-Gaussian grid, trained on ERA5 + operational analyses. Notably strong on tropical cyclone tracks; competitive 10m wind.</p>
+<h3>NVIDIA — FourCastNet / SFNO</h3>
+<p>Pathak et al. 2022; Bonev et al. ICML 2023. <strong>Fourier/spherical-harmonic neural operators</strong>: token mixing in the frequency domain (AFNO), later on the sphere (SFNO) for rotation-equivariant, stable long rollouts. The efficiency lineage — FourCastNet was the first 0.25° ML model, ~45,000× faster than IFS per forecast.</p>
+<h3>Microsoft — Aurora</h3>
+<p>Bodnar et al., <em>Nature</em> 2025. 1.3B-param <strong>foundation model</strong> (3D Swin encoder-decoder + Perceiver) pretrained on &gt;1M hours of heterogeneous atmospheric data, fine-tuned per task. State of the art on 0.1° operational forecasting and strong on wind at the surface; also air quality and ocean waves. Demonstrates the pretrain→finetune paradigm for weather.</p>
+<h3>Stormer (UCLA/CMU, NeurIPS 2024)</h3>
+<p>Nguyen et al. A deliberately <strong>simple ViT</strong> with three key ingredients — weather-specific embedding, randomized dynamics forecasting (train one model at 6/12/24h intervals), and pressure-weighted loss — matching GraphCast-class skill at 1.4° with far less compute. Proof that architecture simplicity + right training recipe ≈ frontier skill; the closest published analogue to what this repo does at small scale.</p>
+<h3>Others at the frontier</h3>
+<ul><li><strong>FuXi / FengWu</strong> (Fudan U. / Shanghai AI Lab): cascaded transformers (FuXi chains</li></ul>
+<p>  lead-time-specialized models); FengWu-GHR reached 0.09°. Strong RMSE at long leads.</p>
+<ul><li><strong>NeuralGCM</strong> (Google, <em>Nature</em> 2024): differentiable dynamical core + learned physics —</li></ul>
+<p>  the hybrid approach; best-in-class ensemble calibration at 1.4°.</p>
+<ul><li><strong>Jua</strong> (commercial, Zurich): EPT-2/EPT-2e; 2026 marketing benchmarks claim leads over</li></ul>
+<p>  ENS and AI rivals on <strong>European wind and solar</strong> — the commercial wind-energy frontier   (numbers not independently verified on WB2).</p>
+<ul><li><strong>Keisler 2022</strong>: the 1° GNN (6.7M params) that started the GNN line — the closest</li></ul>
+<p>  historical precedent for "small model, real skill."</p>
+<h3>Published anchors at our 5.625° scale (directly comparable)</h3>
+<table><thead><tr><th>Model</th><th>Z500 RMSE 3d/5d (m²/s²)</th><th>T850 RMSE 3d/5d (K)</th></tr></thead><tbody><tr><td>Persistence</td><td>936 / 1033</td><td>4.23 / 4.56</td></tr><tr><td>Climatology (WB1)</td><td>816</td><td>3.50</td></tr><tr><td>Rasp &amp; Thuerey 2021 ResNet (CMIP-pretrained, 6.3M params)</td><td><strong>268 / 499</strong></td><td><strong>1.65 / 2.41</strong></td></tr><tr><td>Operational IFS regridded to 5.625°</td><td>154 / 334</td><td>1.36 / 2.03</td></tr></tbody></table>
+<p>(Rasp &amp; Thuerey did not train on wind; our tables add u10/v10/wind-speed rows scored identically, with the published 64×32-regridded GraphCast/HRES forecasts as the reference competitor rows.)</p>
+<hr>
+<h2>3. What we recreate and why</h2>
+<p>Frontier models train on hundreds of GPU/TPU-days at 0.25° (≈2 TB of data). On this project's compute (4 CPU cores; optionally a GTX 1080 / free Kaggle GPU), the honest scientific move — standard since WeatherBench 1 — is to recreate the <strong>architecture families</strong> at 5.625° with 1–3M params and compare against published numbers at the same resolution, plus the regridded true-model forecasts.</p>
+<table><thead><tr><th>This repo</th><th>Recreates</th><th>Family</th></tr></thead><tbody><tr><td><code>models/unet.py</code></td><td>Weyn/Rasp-era CNN baselines</td><td>Convolutional encoder-decoder</td></tr><tr><td><code>models/vit.py</code></td><td><strong>Stormer</strong> (and the Pangu/Swin transformer lineage)</td><td>Vision transformer</td></tr><tr><td><code>models/afno.py</code></td><td><strong>FourCastNet</strong> (AFNO token mixing)</td><td>Spectral neural operator</td></tr><tr><td><code>models/graph.py</code> (stretch)</td><td><strong>GraphCast/Keisler</strong></td><td>Multi-mesh GNN</td></tr><tr><td>corrector + blend (Phase 9)</td><td><strong>GenCast's</strong> probabilistic goal via post-processing</td><td>Learned post-processing / superensemble</td></tr></tbody></table>
+<p>Training recipe shared across all models (all from the GraphCast/Stormer playbook): two-frame input, residual targets scaled by 6h-difference std, latitude-weighted MSE, AdamW + cosine schedule, autoregressive rollout fine-tuning (K=2→4), fixed 6h step, evaluation to 120h.</p>
+<h3>The "beat them" plan</h3>
+<p>Recreation alone cannot outskill GraphCast. <strong>Learned post-processing can</strong>: systematic errors of a frozen forecast model are learnable (the post-processing literature reports 10–40% wind RMSE reductions at stations; grid-scale corrections are smaller but real), and WB2 publishes GraphCast's own 2018 forecasts to train on and 2020 forecasts to test on. Target: beat raw GraphCast and HRES on 2020 10m-wind RMSE (and CRPS via ensemble dressing) at the evaluated 64×32 resolution. A per-lead multi-model blend (GraphCast + Pangu + HRES + ours) is the second lever — superensembles classically beat every member.</p>
+<h3>What we found (see RESULTS.md for the numbers)</h3>
+<p><strong>1. Our metrics pipeline reproduces the published ordering.</strong> Scoring the WB2-published 64×32 forecasts with our own code puts GraphCast ahead of Pangu ahead of HRES, with GenCast's ensemble mean best at long leads — exactly the published ranking. Persistence (z500 RMSE 923/1019 at 3/5 d) and climatology (803) also land on the WeatherBench-1 reference values (936/1033 and 816). The harness is trustworthy.</p>
+<p><strong>2. At CPU scale, the CNN beats the transformer, the spectral operator, and the GNN.</strong> On 10m wind speed RMSE at 72 h: U-Net 2.44 (1.06M params) &lt; ViT 2.76 (2.77M) &lt; AFNO 2.82 (2.02M) &lt; mesh-GNN 3.31 (0.72M). This is not evidence against Stormer, FourCastNet, or GraphCast — it is the expected regime effect. Attention, spectral token-mixing, and message passing all have weaker inductive biases than convolution and need far more data and compute before they overtake it; our budget was ~2 epochs of 5.625° ERA5 on 4 CPU cores. The GNN is additionally handicapped by construction: a single 642-node icosphere for 2048 grid points is a severe bottleneck, where GraphCast uses a <em>multi</em>-mesh (six refinement levels at once, 40,962 nodes) so that both local and hemispheric interactions have short paths. Reproducing GraphCast's architecture at 1/50th the mesh and 1/50th the parameters reproduces its structure, not its skill.</p>
+<p>**3. Over-parameterized post-processing does <em>not</em> transfer across model versions (negative result).** A 1M-parameter U-Net corrector trained on GraphCast's published 2018 forecasts <em>degraded</em> its 2020 forecasts (10m wind speed RMSE 0.97 vs 0.86 at 72 h). The 2018 and 2020 GraphCast forecast sets come from differently-trained model versions, so a high-capacity corrector fits version-specific error structure that no longer exists at test time. This is the post-processing analogue of overfitting to a stale model.</p>
+<p><strong>3b. A weaker, differently-built member still improves the ensemble.</strong> HRES is by far the worst member on wind (0.998 vs FuXi's 0.853 at 72 h), so dropping it looks like an easy win — but removing it makes the average <em>worse</em> (0.814 vs 0.791). It is the only physics-based member, so its errors are decorrelated from the ML models', and that decorrelation is worth more than its individual skill deficit. Ensemble value comes from diversity, not from member quality alone. (Conversely, adding FuXi — the strongest individual on wind — moved the average only 0.796 → 0.791, since it errs much like the other ML members.)</p>
+<p>**4. Low-parameter multi-model blending <em>does</em> transfer — and beats every frontier model.** A per-(variable, lead) affine least-squares blend of GraphCast + Pangu + HRES, with weights fit on 2018 and applied unchanged to 2020, beats the best individual competitor at every lead. Three parameters per (variable, lead) generalize across model versions where a million do not — the same distribution shift that broke finding 3 leaves the blend untouched.</p>
+<p>Better still, a plain <strong>equal-weight average needs no fitting at all</strong>, so members that only exist for the test year (GenCast, FuXi) can join. The five-member average (GraphCast + Pangu + HRES + GenCast-mean + FuXi) is our best forecast:</p>
+<table><thead><tr><th>10m wind speed RMSE (m/s)</th><th>24 h</th><th>72 h</th><th>120 h</th></tr></thead><tbody><tr><td><strong>avg5</strong></td><td><strong>0.361</strong></td><td><strong>0.791</strong></td><td><strong>1.380</strong></td></tr><tr><td>best individual (FuXi)</td><td>0.383</td><td>0.853</td><td>1.470</td></tr><tr><td>GraphCast</td><td>0.389</td><td>0.858</td><td>1.479</td></tr></tbody></table>
+<p>That is <strong>−5.7% / −7.3% / −6.1%</strong> against the best single model at 24/72/120 h, with zero fitted parameters. <em>Caveat worth stating:</em> we compared a handful of member combinations on the test year, so picking avg5 over avg4 (0.791 vs 0.796) is selection on the test set and that 0.6% gap is within noise. The robust claim is the family result — a 4–5 member multi-model average beats every individual model by 5–7% — not the precise ranking among averages.</p>
+<h3>Chasing the 5.625° anchor: how far we got, and what actually blocks it</h3>
+<p>Rasp &amp; Thuerey 2021 reach <strong>z500 RMSE 268 at 3 days</strong>. We set out to match it from scratch. Progression, each step a deliberate change:</p>
+<table><thead><tr><th>model</th><th>z500 @3d</th><th>what changed</th></tr></thead><tbody><tr><td><code>unet</code> (9.5k steps)</td><td>539</td><td>baseline</td></tr><tr><td><code>unet_long</code> (45k steps)</td><td>455</td><td>4.7× training</td></tr><tr><td><code>unet_long_ft2</code></td><td>435</td><td>+ K=2 rollout curriculum</td></tr><tr><td><code>unet_long_ft4</code></td><td>412</td><td>+ K=4</td></tr><tr><td><code>levels72</code></td><td>394</td><td>+ vertical inputs, direct 72h target</td></tr><tr><td><code>anchor72</code></td><td><strong>387</strong></td><td>+ 6.6M params, z500-weighted loss</td></tr><tr><td><code>resnet72</code></td><td>438</td><td>full-resolution ResNet at equal wall-clock (worse)</td></tr><tr><td><em>target</em></td><td><em>268</em></td><td></td></tr></tbody></table>
+<p><strong>We did not reach it — we stalled at 387, 44% above.</strong> The last two changes are worth dwelling on because they were my main hypotheses and they mostly failed: going from 2.95M to 6.6M parameters <em>and</em> weighting the loss 9× onto z500 together bought 1.6%.</p>
+<p>Benchmarking the architecture finally explained why. Their model is a <strong>fully-convolutional ResNet that never pools</strong> — it holds 32×64 through 19 residual blocks. Our U-Net pools to 8×16 at the bottleneck, discarding much of a field that is only 2048 points to begin with. Measured on this machine:</p>
+<table><thead><tr><th>architecture</th><th>s/step (batch 16)</th><th>14k steps</th></tr></thead><tbody><tr><td>U-Net (pools 4×), 6.6M params</td><td>1.1</td><td>4.3 h</td></tr><tr><td>full-res ResNet, 0.5M params (width 64, 6 blocks)</td><td>0.84</td><td>3.3 h</td></tr><tr><td>full-res ResNet, 1.7M params (width 96, 10 blocks)</td><td>3.1</td><td>12 h</td></tr><tr><td><strong>their model</strong> (19 blocks, 128 filters)</td><td>10.6</td><td><strong>41 h</strong></td></tr></tbody></table>
+<p>(Rates measured uncontended. An earlier draft of this section quoted 10.6 s/step for the 1.7M model and ~4 days for theirs; those came from a benchmark run while another job had the CPU, and overstated the wall by ~3×. Their architecture is still out of reach at 41 h, but the middle rows are affordable and the corrected numbers are above.)</p>
+<p>From this I predicted that <strong>resolution was the binding constraint</strong> — that our U-Net stalled at 387 mainly because it pools 32×64 down to 8×16. <code>configs/resnet72.yaml</code> tested it directly: same inputs, same direct-72h target, same loss weighting, same wall-clock as <code>anchor72</code>, but spent on a small full-resolution model (0.5M params) instead of a large pooled one (6.6M).</p>
+<p><strong>The test refuted the prediction.</strong></p>
+<table><thead><tr><th>model</th><th>architecture</th><th>params</th><th>z500 @3d</th></tr></thead><tbody><tr><td><code>anchor72</code></td><td>U-Net, pools to 8×16</td><td>6.6M</td><td><strong>387</strong></td></tr><tr><td><code>levels72</code></td><td>U-Net, pools to 8×16</td><td>2.95M</td><td>394</td></tr><tr><td><code>resnet72</code></td><td>ResNet, full 32×64</td><td>0.5M</td><td><strong>438</strong></td></tr></tbody></table>
+<p>Full resolution came out <em>worse</em>, not better. At a fixed CPU budget, parameters behind a pooling bottleneck beat resolution — the opposite of what I expected.</p>
+<p>The honest caveat: this equalized <em>wall-clock</em>, not <em>capacity</em>, and the ResNet had 13× fewer parameters, so it does not prove resolution is irrelevant — only that it is not worth this much capacity. <code>configs/resnet72_big.yaml</code> (1.7M params, full resolution, ~9.5 h) is the remaining disentangler; if it still trails the 2.95M pooled <code>levels72</code>, the resolution explanation is dead.</p>
+<p>What this leaves: every lever predicted to close the gap to 268 — more capacity, a loss focused on z500, a direct target, full resolution — delivered little or backfired. The gap is not yet explained by anything measured here, and CMIP6 pretraining (their remaining difference) was never attempted.</p>
+<p>Honest bottom line on this goal: <strong>the anchor was not met.</strong> What remains untried is their CMIP6 pretraining, and what is out of reach is the compute their architecture needs. Note also that our best <em>forecast</em> — the 5-member ensemble at z500 98 — is far past 268, but that blends other groups' 0.25° forecasts and is a different achievement entirely; the from-scratch number is 387.</p>
+<h3>What a real 0.25° WB2 leaderboard entry would take</h3>
+<p>For scope honesty: ~2 TB ERA5 at 0.25°, a 30–300M-param model, and O(10²–10³) A100-days (GraphCast: 32 TPU v4 × 4 weeks). Achievable for a lab, not for free-tier compute. The free-tier path stops at "competitive at coarse resolution + beats frontier models via post-processing at that scale."</p>
+<hr>
+<h2>4. Key references</h2>
+<ul><li>Rasp et al., <em>WeatherBench 2</em> (JAMES 2024) — <a href="https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2023MS004019">10.1029/2023MS004019</a></li><li>Lam et al., <em>GraphCast</em> (Science 2023) — <a href="https://arxiv.org/abs/2212.12794">arXiv:2212.12794</a></li><li>Price et al., <em>GenCast</em> (Nature 2025) — <a href="https://www.nature.com/articles/s41586-024-08252-9">10.1038/s41586-024-08252-9</a></li><li>Bi et al., <em>Pangu-Weather</em> (Nature 2023) — <a href="https://www.nature.com/articles/s41586-023-06185-3">10.1038/s41586-023-06185-3</a></li><li>Nguyen et al., <em>Stormer</em> (NeurIPS 2024) — <a href="https://arxiv.org/abs/2312.03876">arXiv:2312.03876</a></li><li>Pathak et al., <em>FourCastNet</em> (2022) — <a href="https://arxiv.org/abs/2202.11214">arXiv:2202.11214</a></li><li>Bonev et al., <em>SFNO</em> (ICML 2023) — <a href="https://arxiv.org/abs/2306.03838">arXiv:2306.03838</a></li><li>Bodnar et al., <em>Aurora</em> (Nature 2025) — <a href="https://arxiv.org/abs/2405.13063">arXiv:2405.13063</a></li><li>Kochkov et al., <em>NeuralGCM</em> (Nature 2024) — <a href="https://arxiv.org/abs/2311.07222">arXiv:2311.07222</a></li><li>Rasp &amp; Thuerey, ResNet for WeatherBench (JAMES 2021) — <a href="https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2020MS002405">10.1029/2020MS002405</a></li><li>Keisler, GNN forecasting (2022) — <a href="https://arxiv.org/abs/2202.07575">arXiv:2202.07575</a></li><li>ECMWF AIFS — <a href="https://www.ecmwf.int/en/about/media-centre/aifs-blog">ecmwf.int/en/about/media-centre/aifs-blog</a></li><li>Jua EPT-2 benchmark claims — <a href="https://jua.ai/articles/2026-ai-weather-model-benchmarks/">jua.ai/articles/2026-ai-weather-model-benchmarks</a></li></ul><footer>Generated by <code>scripts/build_site.py</code>. Scores are latitude-weighted RMSE on 2020 at 64&times;32, ERA5 truth.</footer></div></body></html>
