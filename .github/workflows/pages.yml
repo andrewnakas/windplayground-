@@ -1,14 +1,19 @@
 # Publishes the built site on this branch to GitHub Pages.
 #
-# The repo's Pages source is set to "GitHub Actions", which publishes nothing
-# on its own -- it needs a workflow. This branch already holds the built site
-# at its root (produced by scripts/build_site.py and split out of docs/), so
-# the job just uploads it as-is.
+# NOTE: this only works if the `github-pages` environment allows deployments
+# from this branch. GitHub auto-creates that environment restricted to the
+# DEFAULT branch, so a run from gh-pages fails in ~2 seconds before any step
+# executes. Two ways to make Pages work:
+#
+#   1. (simplest, no Actions needed) Settings > Pages > Source:
+#      "Deploy from a branch" > gh-pages > / (root)
+#   2. Settings > Environments > github-pages > Deployment branches:
+#      add `gh-pages`, then run this workflow.
+#
+# Left as manual-only so it does not fail on every push to this branch.
 name: Deploy Pages
 
 on:
-  push:
-    branches: [gh-pages]
   workflow_dispatch:
 
 permissions:
@@ -16,7 +21,6 @@ permissions:
   pages: write
   id-token: write
 
-# let a running deploy finish rather than cancelling it mid-publish
 concurrency:
   group: pages
   cancel-in-progress: false
