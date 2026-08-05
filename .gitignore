@@ -14,3 +14,5 @@ artifacts/checkpoints/**/*.out
 # best.pt artifacts are what reproduce the reported results
 artifacts/checkpoints/**/last.pt
 .venv-dyn/
+# ephemeral snapshot of the queue scripts taken by scripts/supervise.sh
+artifacts/checkpoints/_running/
