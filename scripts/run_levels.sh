@@ -14,6 +14,13 @@ run_eval() {
   run "$label" "$@"
 }
 
+# the anchor attempt runs first: loss focused on z500/t850 (their direct model
+# optimizes those two, our 20-channel average sent ~1/20th of the signal to z500)
+run anchor72 scripts/train.py --config configs/anchor72.yaml \
+  --run-name anchor72 --auto-resume
+run_eval anchor72_eval anchor72 scripts/evaluate.py \
+  --ckpt artifacts/checkpoints/anchor72/best.pt --name anchor72
+
 run levels72 scripts/train.py --config configs/unet_levels.yaml \
   --run-name levels72 --auto-resume
 run_eval levels72_eval levels72 scripts/evaluate.py \

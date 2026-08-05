@@ -1,0 +1,27 @@
+# All-in attempt at the WeatherBench anchor (Rasp & Thuerey 2021: z500 268 at
+# 3 days). Four changes from levels72, which reached 394:
+#   1. loss weighted onto z500/t850 -- their direct model optimizes those two
+#      variables, while our 20-channel average sent ~1/20th of the gradient
+#      signal to z500
+#   2. wider: 6.6M params, matching their ~6.3M ResNet
+#   3. longer: 30k steps with a schedule that fully anneals
+#   4. everything levels72 already had: vertical inputs, direct 72h target
+run_name: anchor72
+data:
+  variable_set: levels
+model:
+  name: unet
+  two_frame: true
+  params:
+    width: 120
+train:
+  batch_size: 16
+  max_steps: 14000
+  lr: 4.0e-4
+  warmup_steps: 1000
+  val_every: 1000
+  direct_lead_h: 72
+  time_budget_hours: 7.0
+  channel_loss_weights:
+    z500: 20.0
+    t850: 6.0
