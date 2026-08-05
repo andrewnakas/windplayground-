@@ -45,6 +45,7 @@ published forecasts, at the resolution everything here is scored on.
 | blend_graphcast+pangu+hres |   0.382 | 0.851 |   1.551 |
 | avg4                       |   0.38  | 0.843 |   1.52  |
 | afno_ft2                   |   1.655 | 3.262 |   3.909 |
+| anchor72                   | nan     | 2.399 | nan     |
 | avg4ml                     |   0.38  | 0.865 |   1.559 |
 | avg5                       |   0.374 | 0.838 |   1.516 |
 | fuxi_2020                  |   0.396 | 0.915 |   1.692 |
@@ -77,6 +78,7 @@ published forecasts, at the resolution everything here is scored on.
 | blend_graphcast+pangu+hres |   0.405 | 0.922 |   1.681 |
 | avg4                       |   0.404 | 0.913 |   1.649 |
 | afno_ft2                   |   1.751 | 3.477 |   4.171 |
+| anchor72                   | nan     | 2.578 | nan     |
 | avg4ml                     |   0.405 | 0.936 |   1.694 |
 | avg5                       |   0.398 | 0.907 |   1.647 |
 | fuxi_2020                  |   0.422 | 0.991 |   1.841 |
@@ -109,6 +111,7 @@ published forecasts, at the resolution everything here is scored on.
 | blend_graphcast+pangu+hres |   0.369 | 0.803 |   1.421 |
 | avg4                       |   0.366 | 0.796 |   1.386 |
 | afno_ft2                   |   1.552 | 2.71  |   3.047 |
+| anchor72                   | nan     | 2.226 | nan     |
 | avg4ml                     |   0.368 | 0.814 |   1.404 |
 | avg5                       |   0.361 | 0.791 |   1.38  |
 | fuxi_2020                  |   0.383 | 0.853 |   1.47  |
@@ -141,6 +144,7 @@ published forecasts, at the resolution everything here is scored on.
 | blend_graphcast+pangu+hres |   0.609 | 1.249 |   2.22  |
 | avg4                       |   0.612 | 1.24  |   2.18  |
 | afno_ft2                   |   2.48  | 4.764 |   5.729 |
+| anchor72                   | nan     | 3.481 | nan     |
 | avg4ml                     |   0.614 | 1.27  |   2.233 |
 | avg5                       |   0.604 | 1.233 |   2.173 |
 | fuxi_2020                  |   0.639 | 1.343 |   2.417 |
@@ -173,6 +177,7 @@ published forecasts, at the resolution everything here is scored on.
 | blend_graphcast+pangu+hres |   0.643 | 1.359 |   2.402 |
 | avg4                       |   0.646 | 1.349 |   2.361 |
 | afno_ft2                   |   2.596 | 4.895 |   5.757 |
+| anchor72                   | nan     | 3.677 | nan     |
 | avg4ml                     |   0.653 | 1.386 |   2.423 |
 | avg5                       |   0.639 | 1.343 |   2.356 |
 | fuxi_2020                  |   0.682 | 1.467 |   2.627 |
@@ -205,6 +210,7 @@ published forecasts, at the resolution everything here is scored on.
 | blend_graphcast+pangu+hres |  30.032 |  98.835 |  229.22  |
 | avg4                       |  29.911 |  98.429 |  225.859 |
 | afno_ft2                   | 255.329 | 638.589 |  842.459 |
+| anchor72                   | nan     | 387.445 |  nan     |
 | avg4ml                     |  30.992 | 103.897 |  235.963 |
 | avg5                       |  29.593 |  98.503 |  226.489 |
 | fuxi_2020                  |  34.774 | 113.825 |  258.58  |
@@ -237,6 +243,7 @@ published forecasts, at the resolution everything here is scored on.
 | blend_graphcast+pangu+hres |   0.336 | 0.569 |   0.919 |
 | avg4                       |   0.35  | 0.567 |   0.899 |
 | afno_ft2                   |   1.231 | 2.269 |   2.972 |
+| anchor72                   | nan     | 1.541 | nan     |
 | avg4ml                     |   0.326 | 0.561 |   0.912 |
 | avg5                       |   0.339 | 0.555 |   0.889 |
 | fuxi_2020                  |   0.365 | 0.619 |   1.012 |
@@ -269,6 +276,7 @@ published forecasts, at the resolution everything here is scored on.
 | blend_graphcast+pangu+hres |   0.995 | 0.974 |   0.918 |
 | avg4                       |   0.995 | 0.975 |   0.921 |
 | afno_ft2                   |   0.901 | 0.668 |   0.567 |
+| anchor72                   | nan     | 0.783 | nan     |
 | avg4ml                     |   0.995 | 0.974 |   0.919 |
 | avg5                       |   0.995 | 0.975 |   0.922 |
 | fuxi_2020                  |   0.994 | 0.971 |   0.911 |
@@ -300,6 +308,7 @@ published forecasts, at the resolution everything here is scored on.
 | blend_graphcast+pangu+hres |      -4.5 |      -6.7 |       -8.1 |      -4.6 |      -6.5 |       -7.9 |             -5.3 |             -6.5 |              -3.9 |
 | avg4                       |      -4.8 |      -7.6 |       -9.9 |      -4.8 |      -7.4 |       -9.7 |             -5.9 |             -7.3 |              -6.3 |
 | afno_ft2                   |     314   |     257.6 |      131.7 |     312.3 |     252.9 |      128.4 |            298.9 |            215.7 |             106.1 |
+| anchor72                   |     nan   |     163   |      nan   |     nan   |     161.6 |      nan   |            nan   |            159.4 |             nan   |
 | avg4ml                     |      -4.9 |      -5.2 |       -7.6 |      -4.7 |      -5   |       -7.2 |             -5.5 |             -5.2 |              -5   |
 | avg5                       |      -6.4 |      -8.1 |      -10.1 |      -6.3 |      -7.9 |       -9.8 |             -7.3 |             -7.8 |              -6.7 |
 | fuxi_2020                  |      -0.9 |       0.3 |        0.3 |      -0.7 |       0.6 |        0.8 |             -1.6 |             -0.6 |              -0.6 |
