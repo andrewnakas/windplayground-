@@ -239,14 +239,20 @@ only 2048 points to begin with. Measured on this machine:
 | architecture | s/step (batch 16) | 14k steps |
 |---|---|---|
 | U-Net (pools 4×), 6.6M params | 1.1 | 4.3 h |
-| full-res ResNet, 1.7M params | 10.6 | 41 h |
-| full-res ResNet at their size (19 blocks, 128 filters) | ~25 (est.) | ~4 days |
+| full-res ResNet, 0.5M params (width 64, 6 blocks) | 0.84 | 3.3 h |
+| full-res ResNet, 1.7M params (width 96, 10 blocks) | 3.1 | 12 h |
+| **their model** (19 blocks, 128 filters) | 10.6 | **41 h** |
 
-So the gap is not mainly pretraining or capacity or loss design — **the architecture
-that reaches 268 costs an order of magnitude more per step precisely because it refuses
-to downsample**, and that is what 4 CPU cores cannot buy. `configs/resnet72.yaml` spends
-the same wall-clock on a small full-resolution model (0.5M params) instead of a large
-pooled one (6.6M), as a controlled test of whether resolution is the binding constraint.
+(Rates measured uncontended. An earlier draft of this section quoted 10.6 s/step for the
+1.7M model and ~4 days for theirs; those came from a benchmark run while another job had
+the CPU, and overstated the wall by ~3×. Their architecture is still out of reach at
+41 h, but the middle rows are affordable and the corrected numbers are above.)
+
+So a large part of the gap is that **the architecture reaching 268 refuses to downsample,
+and full resolution costs ~10× per step at their depth and width**.
+`configs/resnet72.yaml` tests whether resolution is what binds, spending the same
+wall-clock as `anchor72` on a small full-resolution model (0.5M params) instead of a
+large pooled one (6.6M).
 
 Honest bottom line on this goal: **the anchor was not met.** What remains untried is
 their CMIP6 pretraining, and what is out of reach is the compute their architecture

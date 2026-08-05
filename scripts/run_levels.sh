@@ -22,6 +22,11 @@ run resnet72 scripts/train.py --config configs/resnet72.yaml \
 run_eval resnet72_eval resnet72 scripts/evaluate.py \
   --ckpt artifacts/checkpoints/resnet72/best.pt --name resnet72
 
+run resnet72_big scripts/train.py --config configs/resnet72_big.yaml \
+  --run-name resnet72_big --auto-resume
+run_eval resnet72_big_eval resnet72_big scripts/evaluate.py \
+  --ckpt artifacts/checkpoints/resnet72_big/best.pt --name resnet72_big
+
 run anchor72 scripts/train.py --config configs/anchor72.yaml \
   --run-name anchor72 --auto-resume
 run_eval anchor72_eval anchor72 scripts/evaluate.py \
