@@ -1,0 +1,205 @@
+{
+  "inits": [
+    "2020-01-15T00",
+    "2020-10-28T00",
+    "2026-08-04T12"
+  ],
+  "leads": [
+    0,
+    24,
+    48,
+    72,
+    96,
+    120
+  ],
+  "sources": [
+    {
+      "id": "era5",
+      "label": "ERA5 (truth)",
+      "kind": "truth",
+      "inits": [
+        "2020-01-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "unet_ft4",
+      "label": "ours: U-Net + rollout curriculum",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "vit_ft2",
+      "label": "ours: Stormer-style ViT",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "afno_ft2",
+      "label": "ours: AFNO (FourCastNet)",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "graph",
+      "label": "ours: GraphCast-mini GNN",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "graphcast",
+      "label": "GraphCast (DeepMind)",
+      "kind": "competitor",
+      "inits": [
+        "2020-01-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "gencast_mean",
+      "label": "GenCast ensemble mean (DeepMind)",
+      "kind": "competitor",
+      "inits": [
+        "2020-01-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "pangu",
+      "label": "Pangu-Weather (Huawei)",
+      "kind": "competitor",
+      "inits": [
+        "2020-01-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "hres",
+      "label": "ECMWF HRES",
+      "kind": "competitor",
+      "inits": [
+        "2020-01-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "persistence",
+      "label": "persistence",
+      "kind": "persistence",
+      "inits": [
+        "2020-01-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "aifs_live",
+      "label": "ECMWF AIFS (operational ML) \u2014 live",
+      "kind": "live",
+      "inits": [
+        "2026-08-04T12"
+      ],
+      "leads": [
+        0,
+        24,
+        72
+      ]
+    }
+  ],
+  "grid": {
+    "nx": 64,
+    "ny": 32,
+    "note": "5.625 deg ERA5 grid"
+  }
+}
