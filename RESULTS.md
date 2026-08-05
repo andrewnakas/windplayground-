@@ -51,6 +51,7 @@ published forecasts, at the resolution everything here is scored on.
 | fuxi_2020                  |   0.396 | 0.915 |   1.692 |
 | graph_6k                   |   2.234 | 3.65  |   4.285 |
 | levels72                   | nan     | 2.392 | nan     |
+| resnet72                   | nan     | 2.864 | nan     |
 | unet_long                  |   1.101 | 2.609 |   3.597 |
 | unet_long_ft2              |   1.066 | 2.501 |   3.499 |
 | unet_long_ft4              |   1.058 | 2.389 |   3.344 |
@@ -84,6 +85,7 @@ published forecasts, at the resolution everything here is scored on.
 | fuxi_2020                  |   0.422 | 0.991 |   1.841 |
 | graph_6k                   |   2.436 | 3.766 |   4.187 |
 | levels72                   | nan     | 2.57  | nan     |
+| resnet72                   | nan     | 3.032 | nan     |
 | unet_long                  |   1.182 | 2.777 |   3.81  |
 | unet_long_ft2              |   1.145 | 2.667 |   3.713 |
 | unet_long_ft4              |   1.137 | 2.551 |   3.561 |
@@ -117,6 +119,7 @@ published forecasts, at the resolution everything here is scored on.
 | fuxi_2020                  |   0.383 | 0.853 |   1.47  |
 | graph_6k                   |   2.105 | 3.327 |   3.75  |
 | levels72                   | nan     | 2.229 | nan     |
+| resnet72                   | nan     | 2.752 | nan     |
 | unet_long                  |   1.044 | 2.174 |   2.729 |
 | unet_long_ft2              |   1.019 | 2.107 |   2.675 |
 | unet_long_ft4              |   1.021 | 2.047 |   2.606 |
@@ -150,6 +153,7 @@ published forecasts, at the resolution everything here is scored on.
 | fuxi_2020                  |   0.639 | 1.343 |   2.417 |
 | graph_6k                   |   3.256 | 5.357 |   6.347 |
 | levels72                   | nan     | 3.466 | nan     |
+| resnet72                   | nan     | 4.135 | nan     |
 | unet_long                  |   1.703 | 3.811 |   5.223 |
 | unet_long_ft2              |   1.644 | 3.652 |   5.063 |
 | unet_long_ft4              |   1.624 | 3.482 |   4.822 |
@@ -183,6 +187,7 @@ published forecasts, at the resolution everything here is scored on.
 | fuxi_2020                  |   0.682 | 1.467 |   2.627 |
 | graph_6k                   |   3.544 | 5.292 |   5.808 |
 | levels72                   | nan     | 3.667 | nan     |
+| resnet72                   | nan     | 4.254 | nan     |
 | unet_long                  |   1.828 | 3.985 |   5.335 |
 | unet_long_ft2              |   1.764 | 3.825 |   5.192 |
 | unet_long_ft4              |   1.743 | 3.654 |   4.961 |
@@ -216,6 +221,7 @@ published forecasts, at the resolution everything here is scored on.
 | fuxi_2020                  |  34.774 | 113.825 |  258.58  |
 | graph_6k                   | 364.392 | 772.292 |  976.437 |
 | levels72                   | nan     | 393.746 |  nan     |
+| resnet72                   | nan     | 437.629 |  nan     |
 | unet_long                  | 157.081 | 454.87  |  706.465 |
 | unet_long_ft2              | 151.233 | 435.44  |  683.107 |
 | unet_long_ft4              | 148.063 | 411.737 |  642.473 |
@@ -249,6 +255,7 @@ published forecasts, at the resolution everything here is scored on.
 | fuxi_2020                  |   0.365 | 0.619 |   1.012 |
 | graph_6k                   |   1.499 | 2.798 |   3.624 |
 | levels72                   | nan     | 1.54  | nan     |
+| resnet72                   | nan     | 1.978 | nan     |
 | unet_long                  |   0.891 | 1.586 |   2.222 |
 | unet_long_ft2              |   0.892 | 1.555 |   2.175 |
 | unet_long_ft4              |   0.904 | 1.527 |   2.101 |
@@ -282,6 +289,7 @@ published forecasts, at the resolution everything here is scored on.
 | fuxi_2020                  |   0.994 | 0.971 |   0.911 |
 | graph_6k                   |   0.808 | 0.428 |   0.276 |
 | levels72                   | nan     | 0.782 | nan     |
+| resnet72                   | nan     | 0.639 | nan     |
 | unet_long                  |   0.956 | 0.807 |   0.692 |
 | unet_long_ft2              |   0.958 | 0.817 |   0.7   |
 | unet_long_ft4              |   0.958 | 0.824 |   0.707 |
@@ -314,6 +322,7 @@ published forecasts, at the resolution everything here is scored on.
 | fuxi_2020                  |      -0.9 |       0.3 |        0.3 |      -0.7 |       0.6 |        0.8 |             -1.6 |             -0.6 |              -0.6 |
 | graph_6k                   |     459   |     300.1 |      154   |     473.7 |     282.3 |      129.3 |            441.1 |            287.5 |             153.6 |
 | levels72                   |     nan   |     162.2 |      nan   |     nan   |     160.9 |      nan   |            nan   |            159.6 |             nan   |
+| resnet72                   |     nan   |     214   |      nan   |     nan   |     207.7 |      nan   |            nan   |            220.6 |             nan   |
 | unet_long                  |     175.4 |     186   |      113.3 |     178.3 |     181.9 |      108.6 |            168.3 |            153.2 |              84.6 |
 | unet_long_ft2              |     166.7 |     174.2 |      107.4 |     169.7 |     170.7 |      103.3 |            161.9 |            145.5 |              80.9 |
 | unet_long_ft4              |     164.8 |     161.9 |       98.3 |     167.8 |     158.9 |       95   |            162.5 |            138.5 |              76.2 |

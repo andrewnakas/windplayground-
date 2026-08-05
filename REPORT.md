@@ -225,6 +225,7 @@ scratch. Progression, each step a deliberate change:
 | `unet_long_ft4` | 412 | + K=4 |
 | `levels72` | 394 | + vertical inputs, direct 72h target |
 | `anchor72` | **387** | + 6.6M params, z500-weighted loss |
+| `resnet72` | 438 | full-resolution ResNet at equal wall-clock (worse) |
 | *target* | *268* | |
 
 **We did not reach it — we stalled at 387, 44% above.** The last two changes are worth
@@ -248,11 +249,33 @@ only 2048 points to begin with. Measured on this machine:
 the CPU, and overstated the wall by ~3×. Their architecture is still out of reach at
 41 h, but the middle rows are affordable and the corrected numbers are above.)
 
-So a large part of the gap is that **the architecture reaching 268 refuses to downsample,
-and full resolution costs ~10× per step at their depth and width**.
-`configs/resnet72.yaml` tests whether resolution is what binds, spending the same
-wall-clock as `anchor72` on a small full-resolution model (0.5M params) instead of a
-large pooled one (6.6M).
+From this I predicted that **resolution was the binding constraint** — that our U-Net
+stalled at 387 mainly because it pools 32×64 down to 8×16. `configs/resnet72.yaml` tested
+it directly: same inputs, same direct-72h target, same loss weighting, same wall-clock as
+`anchor72`, but spent on a small full-resolution model (0.5M params) instead of a large
+pooled one (6.6M).
+
+**The test refuted the prediction.**
+
+| model | architecture | params | z500 @3d |
+|---|---|---|---|
+| `anchor72` | U-Net, pools to 8×16 | 6.6M | **387** |
+| `levels72` | U-Net, pools to 8×16 | 2.95M | 394 |
+| `resnet72` | ResNet, full 32×64 | 0.5M | **438** |
+
+Full resolution came out *worse*, not better. At a fixed CPU budget, parameters behind a
+pooling bottleneck beat resolution — the opposite of what I expected.
+
+The honest caveat: this equalized *wall-clock*, not *capacity*, and the ResNet had 13×
+fewer parameters, so it does not prove resolution is irrelevant — only that it is not
+worth this much capacity. `configs/resnet72_big.yaml` (1.7M params, full resolution,
+~9.5 h) is the remaining disentangler; if it still trails the 2.95M pooled `levels72`,
+the resolution explanation is dead.
+
+What this leaves: every lever predicted to close the gap to 268 — more capacity, a loss
+focused on z500, a direct target, full resolution — delivered little or backfired. The
+gap is not yet explained by anything measured here, and CMIP6 pretraining (their
+remaining difference) was never attempted.
 
 Honest bottom line on this goal: **the anchor was not met.** What remains untried is
 their CMIP6 pretraining, and what is out of reach is the compute their architecture
