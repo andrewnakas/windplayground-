@@ -21,3 +21,4 @@ artifacts/checkpoints/_running/
 .kaggle/
 kaggle.json
 *.kaggle.json
+artifacts/kaggle/
