@@ -19,7 +19,11 @@ cd "$REPO"
 
 VENV="${WINDML_VENV:-$REPO/.venv-gpu}"
 TORCH_INDEX="${WINDML_TORCH_INDEX:-https://download.pytorch.org/whl/cu126}"
-MIN_DISK_GB="${WINDML_MIN_DISK_GB:-150}"
+# 100 GB covers the per-chunk build path: one 45 GB zip in flight, a 1.6 GB
+# netCDF chunk being converted, and the ~44 GB of fp16 arrays that accumulate.
+# Extracting the whole archive first would need ~370 GB and buys nothing, so
+# build_rt_cache.py streams and deletes instead. See RUNBOOK.md.
+MIN_DISK_GB="${WINDML_MIN_DISK_GB:-100}"
 
 say()  { echo "windml $*"; }
 fail() { echo "RESULT FAIL $*"; exit 1; }

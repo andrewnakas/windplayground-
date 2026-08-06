@@ -84,6 +84,27 @@ Sizes are measured, not estimated (via `Content-Range`; a plain HEAD reveals not
 | v_component_of_wind | 12.0 GB |
 | **total** | **~154 GB** |
 
+**How much disk you actually need depends on the pipeline shape, not the download.**
+Read from the zip headers: members are 5-year netCDF chunks starting 1850, deflate at
+1.19× (1.31 GB → 1.56 GB), ~33 chunks ≈ 165 years. Extracted, the 154 GB becomes ~183 GB.
+But we keep only 7 pressure levels at fp16, so the *final training array is ~35 GB* —
+roughly 8× smaller than the extracted netCDF.
+
+| approach | peak disk |
+|---|---|
+| download all → extract all → convert | ~370 GB |
+| per-variable, delete each zip after converting | ~135 GB |
+| **per-chunk: extract one 1.6 GB chunk, convert, delete** | **~85 GB** |
+
+Steady state once built is only **~44 GB** (35 GB CMIP + 9 GB ERA5). So **~100 GB free is
+enough** with the per-chunk path, which is what `build_rt_cache.py` does. Do not extract
+the whole archive first; that needs 4× the disk and buys nothing.
+
+One thing to check on the first extract: u/v are 12 GB against z/T/q's 42–45 GB, same
+time span and grid. They must differ in vertical levels or dtype. The build script
+reports the actual level list per variable — confirm all 7 of the paper's levels are
+present for every variable before trusting the pretraining inputs.
+
 ```bash
 .venv-gpu/bin/python scripts/fetch_cmip.py --dest /data/cmip --dry-run   # sizes only
 .venv-gpu/bin/python scripts/fetch_cmip.py --dest /data/cmip
@@ -120,6 +141,33 @@ has no session limit, so let it run; `--auto-resume` restores exact optimizer st
 any interruption.
 
 **Target: z500 @ 72 h ≈ 268 on 2017–2018.**
+
+## Can this all move to Kaggle TPUs instead?
+
+**Uploading the 154 GB is unnecessary** — only the *processed* arrays need to travel:
+~35 GB CMIP + ~9 GB ERA5 = **~44 GB**. Build on the box, upload the compact result. The
+binding constraint is home upload bandwidth, not Kaggle (~5 h at 20 Mbit/s, ~1 h at
+100 Mbit/s). Check Kaggle's current per-dataset cap yourself rather than trusting a
+number from me; it has moved before.
+
+**Do not port this model to data-parallel TPU.** 6.4M parameters on a 64×32 grid is tiny,
+a v3-8 is wildly overpowered, the bottleneck becomes data loading rather than compute,
+and RT2021's BatchNorm means per-core batch statistics stop matching the paper's batch-32
+single-device recipe. The `torch_xla` work would buy little and risk a subtly different
+model.
+
+**The TPU quota is worth spending a different way: one independent model per core — 8
+seeds at once.** This is strictly better here:
+
+- Each core is an independent model with its own batch, so cross-replica BatchNorm never
+  arises and the recipe stays *exactly* the paper's.
+- No large-batch LR retuning.
+- It produces the **ensemble** directly, and ensembling is the one lever already measured
+  in this repo: `avg5` beat its best member by 5.7–7.3% with zero fitted parameters.
+- `xmp.spawn` with a per-core seed is far less code than a correct data-parallel port.
+
+So: **1080 box → pretraining + the ERA5 fidelity run; Kaggle TPU → the 8-seed ensemble;
+Kaggle GPU → per-lead fine-tunes.**
 
 ## Reporting rules
 
