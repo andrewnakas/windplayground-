@@ -155,3 +155,49 @@ def test_head_growth_is_a_noop_when_widths_already_match():
     src = a.state_dict()
     out = grow_output_channels(b, src)
     assert out is src, "same width should return the dict untouched"
+
+
+def test_cmip_pretrain_transfers_into_the_era5_model_exactly():
+    """The real pretrain -> fine-tune step, both ends grown at once.
+
+    CMIP gives 111 inputs / 2 outputs; ERA5 fine-tuning wants 117 / 3. This is
+    the combination scripts/train.py --init-ckpt performs, and the whole point
+    is that it is exact: the two pretrained outputs must be untouched.
+    """
+    from windml.config import RT_INPUT_FRAMES, DataConfig, active_variables, rt_input_channels
+    from windml.models.grow import grow_output_channels
+
+    pre_cfg, fine_cfg = (DataConfig(variable_set="rt2021_cmip"),
+                         DataConfig(variable_set="rt2021"))
+    n_static = RT_N_STATIC
+    assert rt_input_channels("rt2021_cmip") == 111
+    assert rt_input_channels("rt2021") == 117
+
+    torch.manual_seed(0)
+    pre = WeatherResNetRT(in_channels=111, out_channels=len(pre_cfg.target_channels),
+                          width=8, n_blocks=1, dropout=0.0)
+    fine = WeatherResNetRT(in_channels=117, out_channels=len(fine_cfg.target_channels),
+                           width=8, n_blocks=1, dropout=0.0)
+    assert (pre.head.conv.out_channels, fine.head.conv.out_channels) == (2, 3)
+
+    keep = channel_index_map(
+        [v["short"] for v in active_variables("rt2021_cmip")],
+        [v["short"] for v in active_variables("rt2021")],
+        frames=RT_INPUT_FRAMES, n_static=n_static,
+    )
+    state = grow_output_channels(fine, pre.state_dict())
+    grow_input_channels(fine, state, keep=keep)
+
+    pre.eval()
+    fine.eval()
+    x_pre = torch.randn(2, 111, 8, 16)
+    x_fine = torch.zeros(2, 117, 8, 16)
+    x_fine[:, keep] = x_pre
+    # the channels CMIP never had carry junk; they must not change anything yet
+    absent = [i for i in range(117) if i not in set(keep)]
+    x_fine[:, absent] = torch.randn(2, len(absent), 8, 16)
+
+    with torch.no_grad():
+        a, b = pre(x_pre), fine(x_fine)
+    torch.testing.assert_close(a, b[:, :2])      # z500, t850 preserved exactly
+    assert b[:, 2].abs().max() == 0.0            # t2m starts at "no change"
