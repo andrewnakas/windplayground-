@@ -14,7 +14,7 @@ import subprocess
 import numpy as np
 import torch
 
-from windml.config import ARTIFACTS, CHANNELS, DataConfig
+from windml.config import ARTIFACTS, DataConfig
 from windml.data.build_cache import load_statics, load_years
 from windml.data.climatology import load_climatology
 from windml.data.dataset import Era5Dataset, year_range_times
@@ -49,6 +49,10 @@ def main() -> None:
     p.add_argument("--ckpt", default=None)
     p.add_argument("--name", default=None, help="output name override")
     p.add_argument("--split", default="test", choices=["val", "test"])
+    p.add_argument("--years", nargs=2, type=int, default=None, metavar=("START", "END"),
+                   help="override the scoring period. Needed to compare against "
+                        "Rasp & Thuerey, who test on 2017-2018 while our default "
+                        "split is 2020 -- the two are not interchangeable.")
     p.add_argument("--leads", type=int, default=20)
     p.add_argument("--init-stride", type=int, default=2)
     p.add_argument("--check", action="store_true", help="run sanity gates and exit nonzero on failure")
@@ -56,6 +60,8 @@ def main() -> None:
 
     cfg = DataConfig()
     span = cfg.test_years if args.split == "test" else cfg.val_years
+    if args.years:
+        span = (args.years[0], args.years[1])
     truth = np.asarray(load_years(cfg, list(range(span[0], span[1] + 1))), dtype=np.float32)
     times = year_range_times(span)
     clim = np.asarray(load_climatology(CLIM_PATH))
@@ -79,21 +85,31 @@ def main() -> None:
         ds = Era5Dataset(
             mcfg, span, mnorm, rollout_steps=1, two_frame=two_frame,
             direct_steps=(direct_h // 6) if direct_h else None,
+            n_frames=payload.get("n_frames"),
         )
         model = build_model(
             payload["model_name"],
             in_channels=ds.n_input_channels,
-            out_channels=len(mcfg.channels),
+            out_channels=len(mcfg.target_channels),
             **payload.get("model_params", {}),
         )
         model.load_state_dict(payload["state_dict"])
+        # Map the model's OUTPUT channels onto the scored truth array by name.
+        # rt2021 emits [z500, t850, t2m] while the truth is ordered
+        # [u10, v10, t2m, msl, u850, v850, t850, z500]; scoring that
+        # positionally would compare z500 against u10. Returns None for the
+        # sets that already line up, so existing results are untouched.
+        from windml.eval.forecasters import scored_channel_map
+
+        cmap = scored_channel_map(mcfg.target_channels)
+
         if direct_h:
             # one-shot model: scores only its own lead, everything else NaN
             from windml.eval.forecasters import DirectForecaster
 
-            fc = DirectForecaster(model, ds, name)
+            fc = DirectForecaster(model, ds, name, channel_map=cmap)
         else:
-            fc = ModelForecaster(model, ds, mnorm, name)
+            fc = ModelForecaster(model, ds, mnorm, name, channel_map=cmap)
     elif args.competitor:
         from windml.data.competitors import CompetitorForecaster
 

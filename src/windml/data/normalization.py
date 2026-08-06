@@ -12,8 +12,6 @@ from pathlib import Path
 import numpy as np
 
 
-
-
 def compute_stats_streaming(
     blocks, channels: list[str] | None = None, chunk: int = 1000
 ) -> dict:
@@ -38,7 +36,7 @@ class _StatAccumulator:
     def update(self, block: np.ndarray, chunk: int = 1000) -> None:
         C = block.shape[1]
         if self.total is None:
-            z = lambda: np.zeros(C, dtype=np.float64)  # noqa: E731
+            z = lambda: np.zeros(C, dtype=np.float64)
             self.total, self.total_sq = z(), z()
             self.d_total, self.d_total_sq = z(), z()
         for start in range(0, block.shape[0], chunk):
@@ -128,11 +126,71 @@ def load_stats(path: str | Path) -> dict:
     return stats
 
 
+def log_transform(x: np.ndarray, channels: list[str]) -> np.ndarray:
+    """Rasp & Thuerey's precipitation transform: log(eps+PR) - log(eps).
+
+    Applied to the channels named in `LOG_TRANSFORM_VARIABLES`, before any
+    statistics are computed. Subtracting log(eps) is what keeps exact zeros at
+    exact zero, so "no rain" stays representable after the transform; combined
+    with standardizing by std alone (see `Normalizer`), the variable's lower
+    bound survives normalization.
+
+    The paper calls this crucial: without it the distribution is skewed enough
+    that the network simply learns to predict zeros everywhere.
+
+    Returns a copy; `x` is (time, channel, lat, lon).
+    """
+    from windml.config import LOG_TRANSFORM_VARIABLES, PRECIP_LOG_EPSILON
+
+    idx = [i for i, c in enumerate(channels) if c in LOG_TRANSFORM_VARIABLES]
+    if not idx:
+        return x
+    out = np.array(x, dtype=np.float32, copy=True)
+    eps = PRECIP_LOG_EPSILON
+    # log(eps+PR) - log(eps) == log1p(PR/eps), but evaluated as the difference
+    # of two logs in float32 it leaves ~1e-7 of residue at PR=0, which defeats
+    # the whole purpose. log1p(0) is exactly 0, and it is more accurate for the
+    # small values that dominate precipitation.
+    #
+    # Accumulated precipitation is non-negative in principle; tiny negatives do
+    # show up from the regridding, and they would produce NaN here.
+    out[:, idx] = np.log1p(np.maximum(out[:, idx], 0.0) / eps)
+    return out
+
+
+def inverse_log_transform(x: np.ndarray, channels: list[str]) -> np.ndarray:
+    """Undo `log_transform`, for reporting precipitation in physical units."""
+    from windml.config import LOG_TRANSFORM_VARIABLES, PRECIP_LOG_EPSILON
+
+    idx = [i for i, c in enumerate(channels) if c in LOG_TRANSFORM_VARIABLES]
+    if not idx:
+        return x
+    out = np.array(x, dtype=np.float32, copy=True)
+    eps = PRECIP_LOG_EPSILON
+    # Inverse of log1p(PR/eps); expm1(0) is exactly 0, so zeros survive both ways.
+    out[:, idx] = eps * np.expm1(out[:, idx])
+    return out
+
+
 class Normalizer:
-    """Normalize states and residual targets; denormalize predictions."""
+    """Normalize states and residual targets; denormalize predictions.
+
+    Channels listed in `LOG_TRANSFORM_VARIABLES` are scaled by their standard
+    deviation but have **no mean subtracted**, which is what preserves the
+    zero lower bound of log-transformed precipitation. Which channels those are
+    is read from `stats["channels"]`, so callers need not pass anything extra --
+    and stats files that predate the RT2021 variable set are unaffected, since
+    they contain no such channel.
+    """
 
     def __init__(self, stats: dict):
-        self.mean = np.asarray(stats["mean"], dtype=np.float32)[None, :, None, None]
+        from windml.config import LOG_TRANSFORM_VARIABLES
+
+        mean = np.asarray(stats["mean"], dtype=np.float32).copy()
+        for i, channel in enumerate(stats.get("channels", [])):
+            if channel in LOG_TRANSFORM_VARIABLES:
+                mean[i] = 0.0
+        self.mean = mean[None, :, None, None]
         self.std = np.asarray(stats["std"], dtype=np.float32)[None, :, None, None]
         self.diff_std = np.asarray(stats["diff_std"], dtype=np.float32)[None, :, None, None]
 

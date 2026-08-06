@@ -53,13 +53,122 @@ EXTRA_VARIABLES: list[dict[str, Any]] = [
 
 STATIC_VARIABLES = ["land_sea_mask", "geopotential_at_surface"]
 
+# --- Rasp & Thuerey (2021) input set -----------------------------------------
+# Their exact 38 fields per time step: geopotential, temperature, u, v and
+# specific humidity on 7 pressure levels (35), plus 2m temperature, 6-hourly
+# precipitation and TOA incident solar radiation. Stacked over t, t-6h and
+# t-12h that is the 114 dynamic channels the paper reports; land-sea mask,
+# orography and latitude bring the conv input to 117.
+RT_LEVELS = (50, 250, 500, 600, 700, 850, 925)
+RT_LEVEL_VARS = (
+    ("geopotential", "z"),
+    ("temperature", "t"),
+    ("u_component_of_wind", "u"),
+    ("v_component_of_wind", "v"),
+    ("specific_humidity", "q"),
+)
+
+# The three variables the paper's main network predicts. Precipitation gets a
+# separate network -- predicting all four together "led to bad predictions for
+# all variables" -- so it is deliberately absent here.
+RT_TARGETS = ["z500", "t850", "t2m"]
+
+# Ordered so the RT_TARGETS land in the first three slots: the loss, the
+# metrics and the model head all index channels positionally, and keeping the
+# scored variables first is the same convention VARIABLES already follows.
+RT_VARIABLES: list[dict[str, Any]] = (
+    [
+        {"name": "geopotential", "short": "z500", "level": 500},
+        {"name": "temperature", "short": "t850", "level": 850},
+        {"name": "2m_temperature", "short": "t2m", "level": None},
+    ]
+    + [
+        {"name": name, "short": f"{abbr}{lev}", "level": lev}
+        for name, abbr in RT_LEVEL_VARS
+        for lev in RT_LEVELS
+        if f"{abbr}{lev}" not in ("z500", "t850")
+    ]
+    + [
+        {"name": "total_precipitation_6hr", "short": "tp", "level": None},
+        # Not read from the zarr -- computed from solar geometry when the cache
+        # is built (windml/data/solar.py). Carried in this list anyway so the
+        # channel count, the stats file and the normalizer all agree without a
+        # separate bookkeeping constant to keep in sync.
+        {"name": "toa_incident_solar_radiation", "short": "tisr", "level": None,
+         "computed": True},
+    ]
+)
+
+# Precipitation is standardized by its std WITHOUT subtracting the mean, after
+# a log transform, so that zero stays zero. The paper calls this crucial: with
+# a raw or mean-centred target the network just predicts zeros.
+LOG_TRANSFORM_VARIABLES = frozenset({"tp"})
+PRECIP_LOG_EPSILON = 1e-3
+
+# CMIP6 pretraining covers only the pressure-level variables. Verified against
+# the WeatherBench data repository (dataserv.ub.tum.de/s/m1524895): under
+# CMIP/MPI-ESM/{2.8125deg,5.625deg} only geopotential, temperature,
+# u_component_of_wind, v_component_of_wind and specific_humidity exist -- there
+# is no 2m_temperature and no precipitation. Pretraining therefore runs on a
+# reduced channel set and the surface inputs are grown in at fine-tune time.
+CMIP_AVAILABLE_VARIABLES = frozenset(
+    {"geopotential", "temperature", "u_component_of_wind",
+     "v_component_of_wind", "specific_humidity"}
+)
+
+
+def rt_pretrain_variables() -> list[dict[str, Any]]:
+    """The RT2021 channels available when pretraining on CMIP6.
+
+    The five pressure-level variables the archive ships, plus TISR -- which is
+    computed from solar geometry, not read from any archive, so it is just as
+    available during pretraining as during fine-tuning. Only t2m and
+    precipitation are genuinely absent.
+    """
+    return [
+        v for v in RT_VARIABLES
+        if v["name"] in CMIP_AVAILABLE_VARIABLES or v.get("computed")
+    ]
+
+
+RT_INPUT_FRAMES = 3  # t, t-6h, t-12h
+
+# Exactly the paper's three constants: land-sea mask, orography, latitude.
+# Deliberately NOT our usual 5 statics + 4 time encodings -- RT2021 carries no
+# time features because TISR *is* the time signal (it encodes both time of day
+# and season through the solar geometry). Adding them would be a deviation, and
+# would also break the 117 the paper reports.
+RT_N_STATIC = 3
+
+
+def computed_variables(variable_set: str) -> list[str]:
+    """Channels synthesized at cache-build time rather than read from source."""
+    return [v["short"] for v in active_variables(variable_set) if v.get("computed")]
+
+
+def rt_input_channels(variable_set: str = "rt2021") -> int:
+    """Conv input channels for an RT2021-style run: 117 for ERA5, 111 for CMIP.
+
+    38 fields x 3 frames + 3 statics = 117, matching the paper's stated 114
+    dynamic channels plus its three constants.
+    """
+    return len(active_variables(variable_set)) * RT_INPUT_FRAMES + RT_N_STATIC
+
 
 def active_variables(variable_set: str) -> list[dict[str, Any]]:
-    """'core' = the 8 scored channels; 'levels' = those plus vertical structure."""
+    """'core' = the 8 scored channels; 'levels' = those plus vertical structure.
+
+    'rt2021' is the Rasp & Thuerey input set; 'rt2021_cmip' is the subset of it
+    that the CMIP6 pretraining archive provides.
+    """
     if variable_set == "core":
         return VARIABLES
     if variable_set == "levels":
         return VARIABLES + EXTRA_VARIABLES
+    if variable_set == "rt2021":
+        return RT_VARIABLES
+    if variable_set == "rt2021_cmip":
+        return rt_pretrain_variables()
     raise ValueError(f"unknown variable_set: {variable_set}")
 
 
@@ -83,12 +192,43 @@ class DataConfig:
     def channels(self) -> list[str]:
         return [v["short"] for v in active_variables(self.variable_set)]
 
+    @property
+    def target_channels(self) -> list[str]:
+        """Channels the model predicts, which need not be all the inputs.
+
+        RT2021 takes 38 fields per frame but predicts only three (z500, t850,
+        t2m); precipitation gets its own network because "predicting all four
+        variables with a single network led to bad predictions for all
+        variables". Every other variable set predicts everything it reads, so
+        this is the identity there and nothing existing changes behaviour.
+        """
+        if self.variable_set.startswith("rt2021"):
+            # CMIP6 ships no 2m temperature, so pretraining can only supervise
+            # z500 and t850. The fine-tuned model gains the third output via
+            # grow_output_channels(), which zero-inits it -- t2m then starts
+            # from "no change" and learns during fine-tuning.
+            available = set(self.channels)
+            return [c for c in RT_TARGETS if c in available]
+        return self.channels
+
+    @property
+    def target_indices(self) -> list[int]:
+        """Positions of `target_channels` along the array's channel axis."""
+        lookup = {c: i for i, c in enumerate(self.channels)}
+        return [lookup[c] for c in self.target_channels]
+
+    @property
+    def predicts_subset(self) -> bool:
+        return len(self.target_channels) != len(self.channels)
+
 
 @dataclass
 class ModelConfig:
     name: str = "unet"
     params: dict[str, Any] = field(default_factory=dict)
     two_frame: bool = True  # feed t and t-6h states (GraphCast-style)
+    # Overrides two_frame when set. RT2021 stacks 3 frames (t, t-6h, t-12h).
+    n_frames: int | None = None
 
 
 @dataclass
@@ -106,6 +246,17 @@ class TrainConfig:
     val_every: int = 1000
     channel_loss_weights: dict[str, float] = field(default_factory=dict)
     device: str = "auto"  # auto | cpu | cuda
+    # --- RT2021 training recipe ------------------------------------------
+    # Their setup differs from ours in two ways that matter. First, Keras
+    # `kernel_regularizer=l2` is true L2 added to the loss, which plain Adam
+    # reproduces; AdamW's decoupled decay is a different algorithm. Second,
+    # they anneal on a val plateau rather than a cosine, and stop early.
+    optimizer: str = "adamw"  # "adamw" (ours) | "adam" (RT2021, L2 on convs)
+    lr_schedule: str = "cosine"  # "cosine" (ours) | "plateau" (RT2021)
+    plateau_factor: float = 0.2  # LR x1/5 on stall
+    plateau_patience: int = 2  # val intervals without improvement before a drop
+    max_lr_drops: int = 2  # the paper reduces exactly twice
+    early_stop_patience: int = 5  # val intervals without improvement before stop
 
 
 @dataclass
@@ -116,12 +267,12 @@ class Config:
     train: TrainConfig = field(default_factory=TrainConfig)
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "Config":
+    def from_yaml(cls, path: str | Path) -> Config:
         raw = yaml.safe_load(Path(path).read_text()) or {}
         return cls.from_dict(raw)
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> "Config":
+    def from_dict(cls, raw: dict[str, Any]) -> Config:
         data = DataConfig(**{
             k: tuple(v) if k.endswith("_years") else v
             for k, v in raw.get("data", {}).items()

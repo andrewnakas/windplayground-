@@ -12,7 +12,7 @@ batch norm, dropout, and residual connections every two convolutions.
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from windml.models.unet import CircularConv2d
 

@@ -19,6 +19,43 @@ from windml.data.normalization import Normalizer
 N_SCORED = len(CHANNELS)
 
 
+def scored_channel_map(model_channels: list[str]) -> list[int] | None:
+    """Model output index -> index in the scored truth array, or None.
+
+    The `core` and `levels` sets happen to start with the scored channels in
+    the scored order, so slicing the first N works for them. `rt2021` does not:
+    it emits [z500, t850, t2m] against a truth array ordered
+    [u10, v10, t2m, msl, u850, v850, t850, z500]. Scoring that positionally
+    compares z500 against u10 and produces numbers that look plausible and mean
+    nothing, so the mapping is by NAME.
+
+    Returns None when the model already lines up, keeping the fast path exact
+    for every result computed so far.
+    """
+    if model_channels[:N_SCORED] == CHANNELS:
+        return None
+    lookup = {c: i for i, c in enumerate(CHANNELS)}
+    return [lookup.get(c, -1) for c in model_channels]
+
+
+def to_scored(out: np.ndarray, channel_map: list[int] | None) -> np.ndarray:
+    """Place model channels into scored-truth slots; NaN for what it omits.
+
+    NaN is the right filler: `evaluate_forecaster` treats non-finite entries as
+    "not predicted" and skips them per (lead, variable), so an RT2021 model is
+    scored on the three variables it forecasts and left out of the rest rather
+    than being credited with zeros.
+    """
+    if channel_map is None:
+        return out[:, :, :N_SCORED]
+    B, K = out.shape[:2]
+    scored = np.full((B, K, N_SCORED, *out.shape[3:]), np.nan, dtype=out.dtype)
+    for src, dst in enumerate(channel_map):
+        if dst >= 0:
+            scored[:, :, dst] = out[:, :, src]
+    return scored
+
+
 class Forecaster:
     name: str = "forecaster"
 
@@ -62,11 +99,13 @@ class ClimatologyForecaster(Forecaster):
 class ModelForecaster(Forecaster):
     """Autoregressive rollout of a residual-predicting torch model."""
 
-    def __init__(self, model: torch.nn.Module, dataset, normalizer: Normalizer, name: str):
+    def __init__(self, model: torch.nn.Module, dataset, normalizer: Normalizer,
+                 name: str, channel_map: list[int] | None = None):
         self.model = model.eval()
         self.ds = dataset  # Era5Dataset over the test span (provides input_at)
         self.norm = normalizer
         self.name = name
+        self.channel_map = channel_map
 
     @torch.no_grad()
     def forecast(self, init_idx: int, K: int) -> np.ndarray:
@@ -98,7 +137,7 @@ class ModelForecaster(Forecaster):
             if prev is not None:
                 prev = prev_state
             out[:, k] = curr
-        return out[:, :, :N_SCORED]
+        return to_scored(out, self.channel_map)
 
 
 class DirectForecaster(Forecaster):
@@ -109,11 +148,13 @@ class DirectForecaster(Forecaster):
     pretending to produce a full rollout.
     """
 
-    def __init__(self, model: torch.nn.Module, dataset, name: str):
+    def __init__(self, model: torch.nn.Module, dataset, name: str,
+                 channel_map: list[int] | None = None):
         self.model = model.eval()
         self.ds = dataset          # Era5Dataset built with direct_steps set
         self.lead_step = dataset.direct_steps
         self.name = name
+        self.channel_map = channel_map
 
     @torch.no_grad()
     def forecast(self, init_idx: int, K: int) -> np.ndarray:
@@ -122,16 +163,18 @@ class DirectForecaster(Forecaster):
     @torch.no_grad()
     def forecast_batch(self, init_indices: list[int], K: int) -> np.ndarray:
         idx = np.asarray(init_indices)
-        C, H, W = self.ds.array.shape[1:]
-        out = np.full((len(idx), K, C, H, W), np.nan, dtype=np.float32)
+        H, W = self.ds.array.shape[2:]
+        n_out = len(self.ds.target_idx)
+        out = np.full((len(idx), K, n_out, H, W), np.nan, dtype=np.float32)
         k = self.lead_step - 1
-        if k >= K:
-            return out
-        x = np.stack([self.ds.input_at(int(t)) for t in idx])
-        pred = self.model(torch.from_numpy(x)).numpy()
-        base = self.ds.array[idx].astype(np.float32)
-        out[:, k] = base + pred * self.ds.direct_std
-        return out[:, :, :N_SCORED]
+        if k < K:
+            x = np.stack([self.ds.input_at(int(t)) for t in idx])
+            pred = self.model(torch.from_numpy(x)).numpy()
+            # the base state for a residual prediction is the same channels the
+            # model predicts, not the whole input stack
+            base = self.ds.array[idx][:, self.ds.target_idx].astype(np.float32)
+            out[:, k] = base + pred * self.ds.direct_std
+        return to_scored(out, self.channel_map)
 
 
 class StoredForecaster(Forecaster):

@@ -14,9 +14,10 @@ name: Deploy site to GitHub Pages
 on:
   push:
     branches: [main]
-    paths:
-      - 'docs/**'
-      - '.github/workflows/pages.yml'
+    # No `paths:` filter. It had one for docs/** and this file, and a merge to
+    # main that changed 252 files under docs/ still produced no run -- the
+    # filter is the only plausible cause and it was saving nothing: a deploy of
+    # unchanged content is cheap, a silently skipped deploy is not.
   workflow_dispatch:
 
 permissions:

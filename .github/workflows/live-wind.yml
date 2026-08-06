@@ -1,0 +1,95 @@
+name: Refresh live wind
+
+# Keeps the "live" sources in the viewer actually live. dynamical.org serves
+# `.../latest.zarr`, so re-running the fetcher is all it takes -- the site is
+# static, and the freshness comes from redeploying it rather than from anything
+# running at view time.
+#
+# Runs every 6 h to match the operational forecast cycle. Commits ONLY when the
+# init time has moved: the JSON filenames are fixed ("..._latest_072.json"), so
+# an unchanged run produces an identical tree and no commit, which keeps this
+# from filling the history with noise.
+#
+# This job DEPLOYS PAGES ITSELF rather than relying on pages.yml firing from
+# its push. GitHub deliberately does not trigger workflows for pushes made with
+# the built-in GITHUB_TOKEN -- that is its infinite-loop guard -- so a
+# "push and let the other workflow handle it" design would commit fresh data
+# and then never publish it. The commit keeps the repo the source of truth; the
+# deploy step is what makes the site actually change.
+
+on:
+  schedule:
+    - cron: '20 2,8,14,20 * * *'   # ~2 h after each 00/06/12/18Z cycle lands
+  workflow_dispatch:
+
+permissions:
+  contents: write   # commit the refreshed JSON
+  pages: write      # and publish it ourselves
+  id-token: write
+
+concurrency:
+  group: live-wind
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install
+        run: |
+          python -m pip install --quiet --upgrade pip
+          # zarr>=3 is required for dynamical.org's Zarr v3 / Icechunk store and
+          # conflicts with the training env's pinned zarr<3, which is why this
+          # is a standalone install rather than the project's own environment.
+          python -m pip install --quiet "zarr>=3" "xarray>=2025.1" numpy aiohttp pandas
+
+      - name: Fetch live forecasts
+        run: |
+          set -e
+          for ds in aifs gfs; do
+            echo "::group::$ds"
+            # One source failing (an upstream outage, a partial store) must not
+            # discard the other; the previous JSON simply stays in place.
+            python scripts/fetch_dynamical.py --dataset "$ds" || echo "$ds failed, keeping previous data"
+            echo "::endgroup::"
+          done
+
+      - name: Rebuild site
+        run: python scripts/build_site.py
+
+      - name: Commit if the forecast actually moved
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add viewer/data docs
+          if git diff --cached --quiet; then
+            echo "no change -- same init time, nothing to deploy"
+            exit 0
+          fi
+          INIT=$(python -c "import json;m=json.load(open('viewer/data/manifest.json'));print(next((s.get('init_time','?') for s in m['sources'] if s['kind']=='live'),'?'))")
+          git commit -m "Live wind refresh: init $INIT"
+          git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        id: commit
+
+      # Only publish when something actually changed -- a no-op cycle should
+      # not burn a Pages deployment.
+      - uses: actions/configure-pages@v5
+        if: steps.commit.outputs.changed == 'true'
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.commit.outputs.changed == 'true'
+        with:
+          path: docs
+      - uses: actions/deploy-pages@v4
+        if: steps.commit.outputs.changed == 'true'
+        id: deployment

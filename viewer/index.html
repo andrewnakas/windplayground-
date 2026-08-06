@@ -78,6 +78,7 @@
   <div class="btns">
     <button class="btn" id="playBtn">▶ Animate leads</button>
     <button class="btn" id="truthBtn">Compare vs ERA5</button>
+    <button class="btn on" id="landBtn">Land</button>
   </div>
 
   <div id="status">Loading…</div>
@@ -103,17 +104,58 @@
   const statusEl = document.getElementById('status');
   const say = (msg, isErr) => { statusEl.textContent = msg; statusEl.className = isErr ? 'err' : ''; };
 
+  // Land is drawn TWICE, in two panes, and that is the whole point.
+  //
+  // leaflet-velocity puts its particle canvas in `overlayPane` (its default),
+  // and L.geoJSON renders through Leaflet's SVG renderer into `overlayPane`
+  // too. Two layers in one pane means stacking falls to DOM insertion order,
+  // and an opaque land fill landing on top of the canvas is exactly what "no
+  // wind over land" looks like -- which is the bug this had. Brightening the
+  // fill, as I tried first, made it worse.
+  //
+  // So state the z-order explicitly instead of hoping insertion order works
+  // out: filled land BELOW the particles, coastline strokes ABOVE them. Thin
+  // lines do not hide a flow field, so you get legible geography with wind
+  // running across it.
+  // Land fill stays DARK on purpose. Wind over land is mostly slow, and slow
+  // particles are dark teal on this colour scale, so a light landmass washes
+  // them out completely -- which is what a first attempt at a "brighter, more
+  // visible" land did. Legibility comes from the coastline stroke instead;
+  // the fill only needs to be distinguishable from the #0b1020 ocean.
+  const LAND_FILL = {
+    bright: { stroke: false, fillColor: '#161f38', fillOpacity: 1 },
+    dim:    { stroke: false, fillColor: '#0e1426', fillOpacity: 1 },
+  };
+  const COAST_LINE = {
+    bright: { color: '#9db4e8', weight: 1.0, opacity: 0.9, fill: false },
+    dim:    { color: '#46567f', weight: 0.7, opacity: 0.7, fill: false },
+  };
+  let landFill = null, coastLine = null;
+  let landBright = true;
+
   const map = L.map('map', {
     center: [20, 0], zoom: 2, minZoom: 1, maxZoom: 6,
     worldCopyJump: true, attributionControl: false,
   });
 
+  // Leaflet's default overlayPane is z-index 400, which is where the particle
+  // canvas goes; 350 puts the fill under it and 450 puts the coast over it.
+  // exposed so the screenshot test can drive the view and assert pane order
+  window.__map = map;
+
+  map.createPane('landPane').style.zIndex = 350;
+  map.createPane('coastPane').style.zIndex = 450;
+  // the coastline sits above the map surface, so it must not eat drag events
+  map.getPane('coastPane').style.pointerEvents = 'none';
+
   // Self-contained basemap: Natural Earth land polygons, no external tiles.
   try {
     const land = await (await fetch('vendor/land.geo.json')).json();
-    L.geoJSON(land, {
-      style: { color: '#3d4a6d', weight: 0.8, fillColor: '#161d33', fillOpacity: 1 },
-      interactive: false,
+    landFill = L.geoJSON(land, {
+      pane: 'landPane', style: LAND_FILL.bright, interactive: false,
+    }).addTo(map);
+    coastLine = L.geoJSON(land, {
+      pane: 'coastPane', style: COAST_LINE.bright, interactive: false,
     }).addTo(map);
   } catch (e) { say('Could not load coastlines: ' + e.message, true); }
 
@@ -146,12 +188,24 @@
     og.label = groupLabel;
     for (const s of inGroup) {
       const o = document.createElement('option');
-      o.value = s.id; o.textContent = s.label;
+      // show the score next to the name so picking a model and judging it
+      // happen in the same place
+      const score = s.rmse72 != null ? `  -  ${s.rmse72} m/s @72h` : '';
+      o.value = s.id; o.textContent = s.label + score;
       og.appendChild(o);
     }
     sourceSel.appendChild(og);
   }
   sourceSel.value = 'era5';
+
+  document.getElementById('landBtn').addEventListener('click', (e) => {
+    landBright = !landBright;
+    e.target.classList.toggle('on', landBright);
+    const k = landBright ? 'bright' : 'dim';
+    // only ever changes shading -- neither layer can occlude the wind now
+    if (landFill) landFill.setStyle(LAND_FILL[k]);
+    if (coastLine) coastLine.setStyle(COAST_LINE[k]);
+  });
 
   const byId = Object.fromEntries(manifest.sources.map(s => [s.id, s]));
   let leads = [];
@@ -165,7 +219,22 @@
     initSel.innerHTML = '';
     for (const t of inits) {
       const o = document.createElement('option');
-      o.value = t; o.textContent = t.replace('T', '  ') + ':00 UTC';
+      // A live source stores its run under the fixed key "latest" so refreshes
+      // overwrite instead of piling up; the real init time rides in the
+      // manifest. Show that, plus its age, so "live" is checkable and not
+      // just a label.
+      if (t === 'latest' && src.init_time) {
+        const d = new Date(src.init_time);
+        const hrs = (Date.now() - d.getTime()) / 3.6e6;
+        const age = hrs < 1 ? 'just now'
+          : hrs < 48 ? `${Math.round(hrs)} h ago`
+          : `${Math.round(hrs / 24)} d ago`;
+        o.value = t;
+        o.textContent = `${String(d.getUTCHours()).padStart(2, '0')}Z `
+          + `${d.toISOString().slice(0, 10)}  (${age})`;
+      } else {
+        o.value = t; o.textContent = t.replace('T', '  ') + ':00 UTC';
+      }
       initSel.appendChild(o);
     }
     if (inits.includes(wanted)) initSel.value = wanted;

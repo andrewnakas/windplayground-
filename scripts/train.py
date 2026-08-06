@@ -21,7 +21,6 @@ from windml.train.trainer import Trainer
 from windml.utils.grid import latitude_weights
 
 
-
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", required=True)
@@ -70,23 +69,57 @@ def main() -> None:
     train_ds = Era5Dataset(
         dcfg, dcfg.train_years, norm, rollout_steps=cfg.train.rollout_steps,
         two_frame=cfg.model.two_frame, direct_steps=direct_steps,
+        n_frames=cfg.model.n_frames,
     )
     val_ds = Era5Dataset(
         dcfg, dcfg.val_years, norm, rollout_steps=cfg.train.rollout_steps,
         two_frame=cfg.model.two_frame, direct_steps=direct_steps,
+        n_frames=cfg.model.n_frames,
     )
     train_ds.norm = norm
     val_ds.norm = norm
 
     model = build_model(cfg.model.name, in_channels=train_ds.n_input_channels,
-                        out_channels=len(dcfg.channels), **cfg.model.params)
+                        out_channels=len(dcfg.target_channels), **cfg.model.params)
     n_params = sum(p.numel() for p in model.parameters())
     print(f"{cfg.run_name}: {cfg.model.name} with {n_params/1e6:.2f}M params, "
           f"K={cfg.train.rollout_steps}")
 
     if args.init_ckpt:
         payload = torch.load(args.init_ckpt, map_location="cpu", weights_only=False)
-        model.load_state_dict(payload["state_dict"])
+        src_set = payload.get("variable_set", dcfg.variable_set)
+        state = payload["state_dict"]
+
+        if src_set == dcfg.variable_set:
+            model.load_state_dict(state)
+        else:
+            # Pretrain -> fine-tune across different variable sets. CMIP6 has
+            # no 2m temperature and no precipitation, so a pretrained model is
+            # narrower at BOTH ends: 111 inputs against 117, and 2 outputs
+            # (z500, t850) against 3. A plain load_state_dict just raises here.
+            #
+            # Both ends are grown with zeros, which makes the transfer exact
+            # rather than approximate: a conv sums over its input channels, so
+            # a zero column contributes nothing, and a zero output row predicts
+            # a zero residual -- "no change" -- which is the right neutral
+            # start for a variable that was never supervised.
+            from windml.config import active_variables
+            from windml.models.grow import (
+                channel_index_map,
+                grow_input_channels,
+                grow_output_channels,
+            )
+
+            src_channels = [v["short"] for v in active_variables(src_set)]
+            keep = channel_index_map(
+                src_channels, dcfg.channels,
+                frames=train_ds.n_frames, n_static=train_ds.static.shape[0],
+            )
+            state = grow_output_channels(model, state)
+            grow_input_channels(model, state, keep=keep)
+            print(f"grew {src_set} -> {dcfg.variable_set}: "
+                  f"{len(src_channels)}->{len(dcfg.channels)} fields, "
+                  f"{len(keep)}->{train_ds.n_input_channels} inputs")
         print(f"initialized from {args.init_ckpt} (step {payload.get('step')})")
 
     trainer = Trainer(cfg, model, train_ds, val_ds, latitude_weights(

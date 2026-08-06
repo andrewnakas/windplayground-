@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 
 from windml.config import CHANNELS
-from windml.data.climatology import climatology_at
 from windml.eval import metrics
 from windml.eval.forecasters import Forecaster
 
