@@ -15,7 +15,7 @@ feature map at step 0 and throws away part of what pretraining bought.
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 def _stem_conv(model: nn.Module) -> nn.Conv2d:
@@ -39,18 +39,8 @@ def grow_input_channels(
     which is the point -- only the input width is allowed to differ.
     """
     stem = _stem_conv(model)
-    stem_key = next(
-        (k for k, v in state_dict.items()
-         if v.shape[1:] == stem.weight.shape[1:] and v.dim() == 4
-         and v.shape[0] == stem.weight.shape[0]),
-        None,
-    )
-    # Locate the pretrained stem by name rather than shape when widths differ.
-    if stem_key is None:
-        stem_key = next(k for k, v in state_dict.items()
-                        if v.dim() == 4 and v.shape[0] == stem.weight.shape[0]
-                        and v.shape[2:] == stem.weight.shape[2:])
-
+    # By name, not shape -- see _param_name for why shape matching is unsafe.
+    stem_key = _param_name(model, stem, "weight")
     old = state_dict[stem_key]
     n_old, n_new = old.shape[1], stem.weight.shape[1]
     if n_old > n_new:
@@ -77,6 +67,71 @@ def grow_input_channels(
             f"unexpected={unexpected}"
         )
     return model
+
+
+def _head_conv(model: nn.Module) -> nn.Conv2d:
+    """The last Conv2d, i.e. the only layer whose out_channels can change."""
+    convs = [m for m in model.modules() if isinstance(m, nn.Conv2d)]
+    if not convs:
+        raise ValueError("model has no Conv2d layer to grow")
+    return convs[-1]
+
+
+def _param_name(model: nn.Module, target: nn.Module, suffix: str) -> str:
+    """state_dict key for `target`'s parameter, found by identity.
+
+    Matching on tensor *shape* is not safe: with width 128 a head of shape
+    (3, 128, 3, 3) and an interior block conv of (128, 128, 3, 3) share their
+    trailing dimensions, so a shape-based search can silently pick the wrong
+    layer. The module graph is identical between pretrain and fine-tune, so the
+    name is unambiguous.
+    """
+    for name, module in model.named_modules():
+        if module is target:
+            return f"{name}.{suffix}"
+    raise ValueError(f"module not found in {type(model).__name__}")
+
+
+def grow_output_channels(
+    model: nn.Module,
+    state_dict: dict[str, torch.Tensor],
+    keep: list[int] | None = None,
+) -> dict[str, torch.Tensor]:
+    """Widen the pretrained head, zero-filling outputs it never learned.
+
+    CMIP6 has no 2m temperature, so pretraining supervises only z500 and t850
+    while fine-tuning wants all three. A zero row in the head's weight and bias
+    makes the new output predict exactly 0 -- which, since the head regresses
+    *residuals*, means "no change from the input state". That is a sane neutral
+    start that fine-tuning moves off, and it leaves the two pretrained outputs
+    bit-identical rather than perturbing them.
+    """
+    head = _head_conv(model)
+    n_new = head.weight.shape[0]
+    key = _param_name(model, head, "weight")
+    old = state_dict[key]
+    n_old = old.shape[0]
+    if n_old == n_new:
+        return state_dict  # head already the right width; nothing to grow
+    if n_old > n_new:
+        raise ValueError(
+            f"pretrained head has {n_old} outputs, more than the target's "
+            f"{n_new}; growing can only add outputs"
+        )
+    if keep is None:
+        keep = list(range(n_old))
+
+    patched = dict(state_dict)
+    grown = torch.zeros_like(head.weight)
+    grown[keep] = old.to(grown.dtype)
+    patched[key] = grown
+
+    bias_key = key.rsplit(".", 1)[0] + ".bias"
+    if bias_key in state_dict and head.bias is not None:
+        gb = torch.zeros_like(head.bias)
+        gb[keep] = state_dict[bias_key].to(gb.dtype)
+        patched[bias_key] = gb
+    return patched
 
 
 def channel_index_map(pretrain_channels: list[str], finetune_channels: list[str],

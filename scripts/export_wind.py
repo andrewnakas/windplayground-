@@ -67,8 +67,8 @@ def velocity_records(u: np.ndarray, v: np.ndarray, lat: np.ndarray,
             "parameterNumberName": "U-component_of_wind" if param_number == 2
                                    else "V-component_of_wind",
             "parameterCategory": 2,            # momentum
-            "nx": int(len(lon)),
-            "ny": int(len(lat)),
+            "nx": len(lon),
+            "ny": len(lat),
             "lo1": float(lon[0]),
             "la1": float(lat_sorted[0]),
             "lo2": float(lon[-1]),
@@ -116,7 +116,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     manifest = {"inits": args.inits, "leads": args.leads, "sources": [], "grid":
-                {"nx": int(len(lon)), "ny": int(len(lat)), "note": "5.625 deg ERA5 grid"}}
+                {"nx": len(lon), "ny": len(lat), "note": "5.625 deg ERA5 grid"}}
 
     for src_id, label, kind, spec in SOURCES:
         forecaster = None

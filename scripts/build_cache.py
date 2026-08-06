@@ -7,14 +7,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+from dataclasses import replace
 
 import numpy as np
 
-from dataclasses import replace
-
 from windml.config import ARTIFACTS, DataConfig
-from windml.data.build_cache import build_cache, load_years, year_path
+from windml.data.build_cache import build_cache, year_path
 from windml.data.climatology import compute_climatology, save_climatology
 from windml.data.dataset import year_range_times
 from windml.data.normalization import compute_stats_streaming, save_stats

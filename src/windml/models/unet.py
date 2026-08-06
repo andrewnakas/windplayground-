@@ -6,7 +6,7 @@ zeros in latitude. Three resolution levels: 32x64 -> 16x32 -> 8x16.
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 class CircularConv2d(nn.Module):

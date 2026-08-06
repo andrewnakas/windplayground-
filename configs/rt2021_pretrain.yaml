@@ -26,7 +26,6 @@ model:
   name: rt_resnet
   n_frames: 3
   params:
-    out_channels: 3
     dropout: 0.0
 train:
   batch_size: 32

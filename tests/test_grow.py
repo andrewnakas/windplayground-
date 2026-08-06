@@ -6,8 +6,7 @@ import pytest
 import torch
 
 from windml.config import RT_INPUT_FRAMES, RT_N_STATIC, active_variables
-from windml.data.normalization import (Normalizer, inverse_log_transform,
-                                       log_transform)
+from windml.data.normalization import Normalizer, inverse_log_transform, log_transform
 from windml.models.grow import channel_index_map, grow_input_channels
 from windml.models.rt_resnet import WeatherResNetRT
 
@@ -111,3 +110,48 @@ def test_normalizer_does_not_subtract_the_mean_from_precip():
     # so a zero-precip cell normalizes to zero, not to -mean/std
     x = np.zeros((1, 2, 2, 2), dtype=np.float32)
     assert norm.norm_state(x)[0, 1].max() == 0.0
+
+
+# --- head growth (2 pretrain outputs -> 3 fine-tune outputs) -----------------
+
+
+def test_grown_head_preserves_pretrained_outputs_and_zeros_the_new_one():
+    """CMIP cannot supervise t2m, so it is added at fine-tune time as zeros."""
+    from windml.models.grow import grow_output_channels
+
+    torch.manual_seed(0)
+    src = WeatherResNetRT(in_channels=6, out_channels=2, width=8, n_blocks=1,
+                          dropout=0.0)
+    dst = WeatherResNetRT(in_channels=6, out_channels=3, width=8, n_blocks=1,
+                          dropout=0.0)
+    patched = grow_output_channels(dst, src.state_dict())
+    dst.load_state_dict(patched)
+    src.eval()
+    dst.eval()
+
+    x = torch.randn(2, 6, 16, 32)
+    with torch.no_grad():
+        a, b = src(x), dst(x)
+    # the two pretrained outputs are untouched...
+    torch.testing.assert_close(a, b[:, :2])
+    # ...and the new one predicts exactly zero residual, i.e. "no change"
+    assert b[:, 2].abs().max() == 0.0
+
+
+def test_head_growth_refuses_to_shrink():
+    from windml.models.grow import grow_output_channels
+
+    wide = WeatherResNetRT(in_channels=4, out_channels=5, width=8, n_blocks=1)
+    narrow = WeatherResNetRT(in_channels=4, out_channels=2, width=8, n_blocks=1)
+    with pytest.raises(ValueError, match="more than the target"):
+        grow_output_channels(narrow, wide.state_dict())
+
+
+def test_head_growth_is_a_noop_when_widths_already_match():
+    from windml.models.grow import grow_output_channels
+
+    a = WeatherResNetRT(in_channels=4, out_channels=3, width=8, n_blocks=1)
+    b = WeatherResNetRT(in_channels=4, out_channels=3, width=8, n_blocks=1)
+    src = a.state_dict()
+    out = grow_output_channels(b, src)
+    assert out is src, "same width should return the dict untouched"

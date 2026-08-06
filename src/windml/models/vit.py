@@ -6,10 +6,8 @@ matches far fancier architectures. 2x2 patches on the 32x64 grid -> 512 tokens.
 """
 from __future__ import annotations
 
-import math
-
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 def sincos_pos_embed(dim: int, h: int, w: int) -> torch.Tensor:

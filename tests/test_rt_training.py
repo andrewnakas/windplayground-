@@ -55,7 +55,11 @@ def test_rt_configs_carry_the_papers_hyperparameters():
     assert cfg.train.max_lr_drops == 2
     assert cfg.train.early_stop_patience == 5
     assert cfg.model.n_frames == 3
-    assert cfg.model.params["out_channels"] == 3
+    # out_channels is DERIVED from the target set, never set in the config --
+    # train.py passes it positionally, so a config that also set it would
+    # raise "got multiple values for keyword argument 'out_channels'".
+    assert "out_channels" not in cfg.model.params
+    assert cfg.data.target_channels == ["z500", "t850", "t2m"]
     # their split, not our usual 2020 test year
     assert cfg.data.train_years == (1979, 2015)
     assert cfg.data.val_years == (2016, 2016)

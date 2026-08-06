@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import torch
-import torch.nn as nn
+from torch import nn
 
 
 def icosphere(refinements: int = 3) -> tuple[np.ndarray, np.ndarray]:

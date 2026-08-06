@@ -52,9 +52,21 @@ class Trainer:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         from windml.train.losses import make_channel_weights
 
+        if cfg.data.predicts_subset and cfg.train.rollout_steps > 1:
+            # Autoregression feeds the prediction back as the next input state,
+            # which needs a full state. A model predicting 3 of 38 channels
+            # cannot produce one, and silently rolling out a partial state
+            # would be far worse than refusing.
+            raise ValueError(
+                f"rollout_steps={cfg.train.rollout_steps} with a reduced target "
+                f"set ({len(cfg.data.target_channels)} of {len(cfg.data.channels)} "
+                f"channels): autoregression needs the model to predict the full "
+                f"state. Use direct_lead_h instead."
+            )
         self.loss_fn = LatWeightedMSE(
             lat_weights,
-            make_channel_weights(cfg.train.channel_loss_weights, cfg.data.channels),
+            make_channel_weights(cfg.train.channel_loss_weights,
+                                 cfg.data.target_channels),
         ).to(self.device)
         self.opt = self._build_optimizer(model, cfg)
         self.K = cfg.train.rollout_steps

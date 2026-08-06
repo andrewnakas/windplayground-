@@ -8,8 +8,8 @@ Pathak et al. 2022 (FourCastNet).
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from torch import nn
 
 
 class AFNOMixer(nn.Module):

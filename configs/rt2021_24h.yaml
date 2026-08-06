@@ -11,8 +11,6 @@ data:
 model:
   name: rt_resnet
   n_frames: 3              # t, t-6h, t-12h
-  params:
-    out_channels: 3        # z500, t850, t2m -- precip gets its own network
 train:
   batch_size: 32
   lr: 5.0e-5

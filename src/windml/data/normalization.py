@@ -12,8 +12,6 @@ from pathlib import Path
 import numpy as np
 
 
-
-
 def compute_stats_streaming(
     blocks, channels: list[str] | None = None, chunk: int = 1000
 ) -> dict:
@@ -38,7 +36,7 @@ class _StatAccumulator:
     def update(self, block: np.ndarray, chunk: int = 1000) -> None:
         C = block.shape[1]
         if self.total is None:
-            z = lambda: np.zeros(C, dtype=np.float64)  # noqa: E731
+            z = lambda: np.zeros(C, dtype=np.float64)
             self.total, self.total_sq = z(), z()
             self.d_total, self.d_total_sq = z(), z()
         for start in range(0, block.shape[0], chunk):

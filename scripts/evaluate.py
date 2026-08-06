@@ -90,17 +90,26 @@ def main() -> None:
         model = build_model(
             payload["model_name"],
             in_channels=ds.n_input_channels,
-            out_channels=len(mcfg.channels),
+            out_channels=len(mcfg.target_channels),
             **payload.get("model_params", {}),
         )
         model.load_state_dict(payload["state_dict"])
+        # Map the model's OUTPUT channels onto the scored truth array by name.
+        # rt2021 emits [z500, t850, t2m] while the truth is ordered
+        # [u10, v10, t2m, msl, u850, v850, t850, z500]; scoring that
+        # positionally would compare z500 against u10. Returns None for the
+        # sets that already line up, so existing results are untouched.
+        from windml.eval.forecasters import scored_channel_map
+
+        cmap = scored_channel_map(mcfg.target_channels)
+
         if direct_h:
             # one-shot model: scores only its own lead, everything else NaN
             from windml.eval.forecasters import DirectForecaster
 
-            fc = DirectForecaster(model, ds, name)
+            fc = DirectForecaster(model, ds, name, channel_map=cmap)
         else:
-            fc = ModelForecaster(model, ds, mnorm, name)
+            fc = ModelForecaster(model, ds, mnorm, name, channel_map=cmap)
     elif args.competitor:
         from windml.data.competitors import CompetitorForecaster
 

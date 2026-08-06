@@ -41,14 +41,18 @@ def evaluate_forecaster(
 
     rmse_sum = np.zeros((K, n_vars))
     acc_sum = np.zeros((K, n_vars))
-    count = np.zeros(K, dtype=np.int64)
+    count = np.zeros((K, n_vars), dtype=np.int64)
 
     for start in range(0, len(inits), batch_size):
         chunk = inits[start : start + batch_size]
         preds = fc.forecast_batch(chunk, K)  # (B, K, C, H, W); NaN leads skipped
         for pred, init_idx in zip(preds, chunk):
-            lead_ok = np.isfinite(pred).all(axis=(1, 2, 3))  # (K,)
-            if not lead_ok.any():
+            # A model may predict only some variables (RT2021 forecasts
+            # z500/t850/t2m and nothing else) and only some leads (a direct
+            # 72h model). So validity is per (lead, variable), not per lead:
+            # masking whole leads would throw away the three variables an
+            # RT2021 model *does* forecast and silently report all-NaN.
+            if not np.isfinite(pred).any():
                 continue
             target = truth[init_idx + 1 : init_idx + K + 1]
             valid_times = times[init_idx + 1 : init_idx + K + 1]
@@ -62,6 +66,10 @@ def evaluate_forecaster(
             target_all = np.concatenate([target, target_ws[:, None]], axis=1)
             clim_all = np.concatenate([clim_fields, clim_ws[:, None]], axis=1)
 
+            # (K, V) validity, computed after the wind-speed column is
+            # appended so a NaN u10/v10 correctly invalidates wind_speed too.
+            ok = np.isfinite(pred_all).all(axis=(2, 3))
+
             err = metrics.weighted_mean((pred_all - target_all) ** 2, lat_w)  # (K, V)
             ap = pred_all - clim_all
             at = target_all - clim_all
@@ -70,16 +78,16 @@ def evaluate_forecaster(
                 metrics.weighted_mean(ap**2, lat_w) * metrics.weighted_mean(at**2, lat_w)
             )
             acc_field = num / np.maximum(den, 1e-12)
-            rmse_sum[lead_ok] += np.sqrt(err[lead_ok])
-            acc_sum[lead_ok] += acc_field[lead_ok]
-            count += lead_ok.astype(np.int64)
+            rmse_sum += np.where(ok, np.sqrt(np.where(ok, err, 0.0)), 0.0)
+            acc_sum += np.where(ok, np.where(ok, acc_field, 0.0), 0.0)
+            count += ok.astype(np.int64)
 
     rows = []
     for k in range(K):
         # a lead with no valid init times (e.g. odd 6h leads for a 12-hourly
         # model such as GenCast) scores NaN, not 0 -- 0 would read as perfect
-        n = count[k]
         for v, var in enumerate(SCORED_VARS):
+            n = count[k, v]
             rows.append(
                 {
                     "model": fc.name,

@@ -56,7 +56,7 @@ def velocity_records(u, v, lat, lon, ref_time: str, forecast_hours: int) -> list
             "parameterNumberName": "U-component_of_wind" if param_number == 2
                                    else "V-component_of_wind",
             "parameterCategory": 2,
-            "nx": int(len(lon)), "ny": int(len(lat)),
+            "nx": len(lon), "ny": len(lat),
             "lo1": float(lon[0]), "la1": float(lat[0]),
             "lo2": float(lon[-1]), "la2": float(lat[-1]),
             "dx": float(abs(lon[1] - lon[0])), "dy": float(abs(lat[0] - lat[1])),

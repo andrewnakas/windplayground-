@@ -192,6 +192,35 @@ class DataConfig:
     def channels(self) -> list[str]:
         return [v["short"] for v in active_variables(self.variable_set)]
 
+    @property
+    def target_channels(self) -> list[str]:
+        """Channels the model predicts, which need not be all the inputs.
+
+        RT2021 takes 38 fields per frame but predicts only three (z500, t850,
+        t2m); precipitation gets its own network because "predicting all four
+        variables with a single network led to bad predictions for all
+        variables". Every other variable set predicts everything it reads, so
+        this is the identity there and nothing existing changes behaviour.
+        """
+        if self.variable_set.startswith("rt2021"):
+            # CMIP6 ships no 2m temperature, so pretraining can only supervise
+            # z500 and t850. The fine-tuned model gains the third output via
+            # grow_output_channels(), which zero-inits it -- t2m then starts
+            # from "no change" and learns during fine-tuning.
+            available = set(self.channels)
+            return [c for c in RT_TARGETS if c in available]
+        return self.channels
+
+    @property
+    def target_indices(self) -> list[int]:
+        """Positions of `target_channels` along the array's channel axis."""
+        lookup = {c: i for i, c in enumerate(self.channels)}
+        return [lookup[c] for c in self.target_channels]
+
+    @property
+    def predicts_subset(self) -> bool:
+        return len(self.target_channels) != len(self.channels)
+
 
 @dataclass
 class ModelConfig:

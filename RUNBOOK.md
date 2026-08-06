@@ -191,14 +191,15 @@ These are not stylistic — they are what keeps the numbers meaningful.
 | CUDA OOM | batch too large for 8 GB | halve `batch_size` in the config |
 | z500 far from 314 at step 3 | reimplementation bug | stop; report the number |
 
-## Known gap — must be fixed before step 3's number means anything
+## Channel mapping — fixed, and why it mattered
 
-The eval harness scores against the **core** 8-channel truth array, whose channel order
-is `[u10, v10, t2m, msl, u850, v850, t850, z500]`. The `rt2021` set orders its outputs
-`[z500, t850, t2m]`. Nothing currently remaps between them, so an `rt2021` checkpoint
-scored today would be compared against the *wrong variables* and produce numbers that
-look plausible and are meaningless.
+The eval harness scores against the core 8-channel truth ordered
+`[u10, v10, t2m, msl, u850, v850, t850, z500]`, while `rt2021` emits
+`[z500, t850, t2m]`. Scoring positionally compared z500 against u10.
+`scored_channel_map()` now matches **by name** (z500 -> 7, t850 -> 6, t2m -> 2)
+and the validity mask is per (lead, variable), so an RT2021 model is scored on the three
+variables it forecasts and simply absent from the rest.
 
-`scripts/evaluate.py` needs a channel-name mapping from model outputs onto truth indices
-(z500 -> 7, t850 -> 6, t2m -> 2) before any RT2021 result is reported. Do not run step 3
-to completion and trust the output until that lands.
+Verified non-regressive: re-scoring the committed `anchor72` checkpoint reproduces all
+180 rows bit-identically (z500@72h = 387.4454390992735 before and after).
+

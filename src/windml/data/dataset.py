@@ -91,6 +91,10 @@ class Era5Dataset(Dataset):
         self.time_feats = time_encodings(hours.astype(np.float64))  # (T, 4)
         # earliest usable index: enough history for every stacked frame
         self.margin = self.n_frames - 1
+        # Channels the model predicts. RT2021 reads 38 fields and predicts 3,
+        # so targets must be sliced; for every other set this is all of them.
+        self.target_idx = np.asarray(cfg.target_indices, dtype=np.int64)
+        self.predicts_subset = cfg.predicts_subset
         # scale for the direct target: spread of L-step differences, estimated
         # on a sample so it is cheap and stable
         self.direct_std = (
@@ -102,6 +106,7 @@ class Era5Dataset(Dataset):
         hi = self.array.shape[0] - steps - 1
         idx = rng.choice(hi, size=min(n_samples, hi), replace=False)
         diffs = self.array[idx + steps].astype(np.float32) - self.array[idx].astype(np.float32)
+        diffs = diffs[:, self.target_idx]
         return diffs.std(axis=(0, 2, 3), dtype=np.float64).astype(np.float32)[
             None, :, None, None
         ]
@@ -143,8 +148,10 @@ class Era5Dataset(Dataset):
         if self.direct_steps:
             # one shot to the target lead: (x_{t+L} - x_t) / std_L
             delta = (self.array[t + self.direct_steps] - self.array[t]).astype(np.float32)
+            delta = delta[self.target_idx]
             target = (delta[None] / self.direct_std)[0]
             return torch.from_numpy(x), torch.from_numpy(target[None])
         future = self.array[t : t + self.K + 1].astype(np.float32)
         residuals = self.norm.norm_residual(np.diff(future, axis=0))
+        residuals = residuals[:, self.target_idx]
         return torch.from_numpy(x), torch.from_numpy(np.ascontiguousarray(residuals))
