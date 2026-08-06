@@ -39,7 +39,7 @@ run_eval levels72_eval levels72 scripts/evaluate.py \
 
 # same recipe aimed at 5 days, the other lead the leaderboard reports
 run levels120 scripts/train.py --config configs/unet_levels.yaml \
-  --run-name levels120 --direct-lead-h 120 --max-steps 18000 \
+  --run-name levels120 --direct-lead-h 120 --max-steps 10000 \
   --time-budget-hours 2.5 --auto-resume
 run_eval levels120_eval levels120 scripts/evaluate.py \
   --ckpt artifacts/checkpoints/levels120/best.pt --name levels120
