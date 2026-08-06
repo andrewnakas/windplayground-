@@ -143,3 +143,34 @@ def test_tisr_peaks_near_the_subsolar_longitude():
     equator = np.argmin(np.abs(lat))
     peak_lon = lon[np.argmax(r[equator])]
     assert min(peak_lon, 360 - peak_lon) < 15.0, peak_lon
+
+
+# --- RT2021 channel bookkeeping ---------------------------------------------
+
+
+def test_rt2021_input_channels_reproduce_the_papers_117():
+    from windml.config import active_variables, rt_input_channels
+
+    # 37 stored + 1 computed (TISR) = 38 fields/frame; x3 frames = 114 dynamic,
+    # +3 statics = 117. The paper states the 114.
+    assert len(active_variables("rt2021")) == 37
+    assert rt_input_channels("rt2021") == 117
+    # CMIP6 has no t2m or precip, so pretraining sees a narrower stack.
+    assert rt_input_channels("rt2021_cmip") == 111
+
+
+def test_rt_targets_are_the_first_three_channels():
+    """Loss, metrics and the model head all index channels positionally."""
+    from windml.config import RT_TARGETS, active_variables
+
+    assert [v["short"] for v in active_variables("rt2021")][:3] == RT_TARGETS
+
+
+def test_cmip_subset_is_pressure_levels_only():
+    """Verified against the WeatherBench data repo: no surface fields in CMIP."""
+    from windml.config import active_variables
+
+    era = {v["short"] for v in active_variables("rt2021")}
+    cmip = {v["short"] for v in active_variables("rt2021_cmip")}
+    assert era - cmip == {"t2m", "tp"}
+    assert len(cmip) == 35  # 5 variables x 7 levels

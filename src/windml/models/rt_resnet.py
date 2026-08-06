@@ -33,7 +33,7 @@ Two details are easy to get wrong and both are deliberate here:
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
+from torch import nn
 
 from windml.models.unet import CircularConv2d
 
