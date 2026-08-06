@@ -7,12 +7,12 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+from dataclasses import replace
 
 import numpy as np
 
 from windml.config import ARTIFACTS, DataConfig
-from windml.data.build_cache import build_cache, load_years, year_path
+from windml.data.build_cache import build_cache, year_path
 from windml.data.climatology import compute_climatology, save_climatology
 from windml.data.dataset import year_range_times
 from windml.data.normalization import compute_stats_streaming, save_stats
@@ -27,6 +27,8 @@ def main() -> None:
     p.add_argument("--skip-derived", action="store_true", help="cache only, no stats/clim")
     p.add_argument("--config", default=None,
                    help="training config yaml whose data: section selects grid/url")
+    p.add_argument("--variable-set", default=None,
+                   help="core | levels | rt2021 | rt2021_cmip (overrides --config)")
     args = p.parse_args()
 
     if args.config:
@@ -35,6 +37,8 @@ def main() -> None:
         cfg = Config.from_yaml(args.config).data
     else:
         cfg = DataConfig()
+    if args.variable_set:
+        cfg = replace(cfg, variable_set=args.variable_set)
     if args.years:
         years = list(range(args.years[0], args.years[1] + 1))
     else:
