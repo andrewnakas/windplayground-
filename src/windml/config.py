@@ -88,7 +88,15 @@ RT_VARIABLES: list[dict[str, Any]] = (
         for lev in RT_LEVELS
         if f"{abbr}{lev}" not in ("z500", "t850")
     ]
-    + [{"name": "total_precipitation_6hr", "short": "tp", "level": None}]
+    + [
+        {"name": "total_precipitation_6hr", "short": "tp", "level": None},
+        # Not read from the zarr -- computed from solar geometry when the cache
+        # is built (windml/data/solar.py). Carried in this list anyway so the
+        # channel count, the stats file and the normalizer all agree without a
+        # separate bookkeeping constant to keep in sync.
+        {"name": "toa_incident_solar_radiation", "short": "tisr", "level": None,
+         "computed": True},
+    ]
 )
 
 # Precipitation is standardized by its std WITHOUT subtracting the mean, after
@@ -110,24 +118,41 @@ CMIP_AVAILABLE_VARIABLES = frozenset(
 
 
 def rt_pretrain_variables() -> list[dict[str, Any]]:
-    """The RT2021 channels that CMIP6 can actually supply."""
-    return [v for v in RT_VARIABLES if v["name"] in CMIP_AVAILABLE_VARIABLES]
+    """The RT2021 channels available when pretraining on CMIP6.
+
+    The five pressure-level variables the archive ships, plus TISR -- which is
+    computed from solar geometry, not read from any archive, so it is just as
+    available during pretraining as during fine-tuning. Only t2m and
+    precipitation are genuinely absent.
+    """
+    return [
+        v for v in RT_VARIABLES
+        if v["name"] in CMIP_AVAILABLE_VARIABLES or v.get("computed")
+    ]
 
 
-# TOA incident solar radiation is computed from solar geometry rather than read
-# from the zarr (see windml/data/solar.py), so it is not in RT_VARIABLES -- but
-# it IS one of the paper's 38 per-timestep fields, and it is appended when the
-# cache is built. Counting it here is what makes 117 reproducible:
-#   (37 stored + 1 computed) x 3 frames + 3 statics = 117.
-RT_COMPUTED_FIELDS = 1
 RT_INPUT_FRAMES = 3  # t, t-6h, t-12h
-RT_N_STATIC = 3  # land-sea mask, orography, latitude
+
+# Exactly the paper's three constants: land-sea mask, orography, latitude.
+# Deliberately NOT our usual 5 statics + 4 time encodings -- RT2021 carries no
+# time features because TISR *is* the time signal (it encodes both time of day
+# and season through the solar geometry). Adding them would be a deviation, and
+# would also break the 117 the paper reports.
+RT_N_STATIC = 3
+
+
+def computed_variables(variable_set: str) -> list[str]:
+    """Channels synthesized at cache-build time rather than read from source."""
+    return [v["short"] for v in active_variables(variable_set) if v.get("computed")]
 
 
 def rt_input_channels(variable_set: str = "rt2021") -> int:
-    """Conv input channels for an RT2021-style run: 117 for ERA5, 111 for CMIP."""
-    per_frame = len(active_variables(variable_set)) + RT_COMPUTED_FIELDS
-    return per_frame * RT_INPUT_FRAMES + RT_N_STATIC
+    """Conv input channels for an RT2021-style run: 117 for ERA5, 111 for CMIP.
+
+    38 fields x 3 frames + 3 statics = 117, matching the paper's stated 114
+    dynamic channels plus its three constants.
+    """
+    return len(active_variables(variable_set)) * RT_INPUT_FRAMES + RT_N_STATIC
 
 
 def active_variables(variable_set: str) -> list[dict[str, Any]]:
@@ -173,6 +198,8 @@ class ModelConfig:
     name: str = "unet"
     params: dict[str, Any] = field(default_factory=dict)
     two_frame: bool = True  # feed t and t-6h states (GraphCast-style)
+    # Overrides two_frame when set. RT2021 stacks 3 frames (t, t-6h, t-12h).
+    n_frames: int | None = None
 
 
 @dataclass
@@ -190,6 +217,17 @@ class TrainConfig:
     val_every: int = 1000
     channel_loss_weights: dict[str, float] = field(default_factory=dict)
     device: str = "auto"  # auto | cpu | cuda
+    # --- RT2021 training recipe ------------------------------------------
+    # Their setup differs from ours in two ways that matter. First, Keras
+    # `kernel_regularizer=l2` is true L2 added to the loss, which plain Adam
+    # reproduces; AdamW's decoupled decay is a different algorithm. Second,
+    # they anneal on a val plateau rather than a cosine, and stop early.
+    optimizer: str = "adamw"  # "adamw" (ours) | "adam" (RT2021, L2 on convs)
+    lr_schedule: str = "cosine"  # "cosine" (ours) | "plateau" (RT2021)
+    plateau_factor: float = 0.2  # LR x1/5 on stall
+    plateau_patience: int = 2  # val intervals without improvement before a drop
+    max_lr_drops: int = 2  # the paper reduces exactly twice
+    early_stop_patience: int = 5  # val intervals without improvement before stop
 
 
 @dataclass

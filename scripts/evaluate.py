@@ -14,7 +14,7 @@ import subprocess
 import numpy as np
 import torch
 
-from windml.config import ARTIFACTS, CHANNELS, DataConfig
+from windml.config import ARTIFACTS, DataConfig
 from windml.data.build_cache import load_statics, load_years
 from windml.data.climatology import load_climatology
 from windml.data.dataset import Era5Dataset, year_range_times
@@ -49,6 +49,10 @@ def main() -> None:
     p.add_argument("--ckpt", default=None)
     p.add_argument("--name", default=None, help="output name override")
     p.add_argument("--split", default="test", choices=["val", "test"])
+    p.add_argument("--years", nargs=2, type=int, default=None, metavar=("START", "END"),
+                   help="override the scoring period. Needed to compare against "
+                        "Rasp & Thuerey, who test on 2017-2018 while our default "
+                        "split is 2020 -- the two are not interchangeable.")
     p.add_argument("--leads", type=int, default=20)
     p.add_argument("--init-stride", type=int, default=2)
     p.add_argument("--check", action="store_true", help="run sanity gates and exit nonzero on failure")
@@ -56,6 +60,8 @@ def main() -> None:
 
     cfg = DataConfig()
     span = cfg.test_years if args.split == "test" else cfg.val_years
+    if args.years:
+        span = (args.years[0], args.years[1])
     truth = np.asarray(load_years(cfg, list(range(span[0], span[1] + 1))), dtype=np.float32)
     times = year_range_times(span)
     clim = np.asarray(load_climatology(CLIM_PATH))
@@ -79,6 +85,7 @@ def main() -> None:
         ds = Era5Dataset(
             mcfg, span, mnorm, rollout_steps=1, two_frame=two_frame,
             direct_steps=(direct_h // 6) if direct_h else None,
+            n_frames=payload.get("n_frames"),
         )
         model = build_model(
             payload["model_name"],

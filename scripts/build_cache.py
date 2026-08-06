@@ -11,6 +11,8 @@ from pathlib import Path
 
 import numpy as np
 
+from dataclasses import replace
+
 from windml.config import ARTIFACTS, DataConfig
 from windml.data.build_cache import build_cache, load_years, year_path
 from windml.data.climatology import compute_climatology, save_climatology
@@ -27,6 +29,8 @@ def main() -> None:
     p.add_argument("--skip-derived", action="store_true", help="cache only, no stats/clim")
     p.add_argument("--config", default=None,
                    help="training config yaml whose data: section selects grid/url")
+    p.add_argument("--variable-set", default=None,
+                   help="core | levels | rt2021 | rt2021_cmip (overrides --config)")
     args = p.parse_args()
 
     if args.config:
@@ -35,6 +39,8 @@ def main() -> None:
         cfg = Config.from_yaml(args.config).data
     else:
         cfg = DataConfig()
+    if args.variable_set:
+        cfg = replace(cfg, variable_set=args.variable_set)
     if args.years:
         years = list(range(args.years[0], args.years[1] + 1))
     else:

@@ -21,7 +21,6 @@ from windml.train.trainer import Trainer
 from windml.utils.grid import latitude_weights
 
 
-
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--config", required=True)
@@ -70,10 +69,12 @@ def main() -> None:
     train_ds = Era5Dataset(
         dcfg, dcfg.train_years, norm, rollout_steps=cfg.train.rollout_steps,
         two_frame=cfg.model.two_frame, direct_steps=direct_steps,
+        n_frames=cfg.model.n_frames,
     )
     val_ds = Era5Dataset(
         dcfg, dcfg.val_years, norm, rollout_steps=cfg.train.rollout_steps,
         two_frame=cfg.model.two_frame, direct_steps=direct_steps,
+        n_frames=cfg.model.n_frames,
     )
     train_ds.norm = norm
     val_ds.norm = norm

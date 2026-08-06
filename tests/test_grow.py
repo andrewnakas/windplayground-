@@ -60,7 +60,7 @@ def test_channel_index_map_places_cmip_channels_in_the_rt2021_stack():
     fine = [v["short"] for v in active_variables("rt2021")]
     keep = channel_index_map(pre, fine, RT_INPUT_FRAMES, RT_N_STATIC)
 
-    assert len(keep) == RT_INPUT_FRAMES * len(pre) + RT_N_STATIC == 108
+    assert len(keep) == RT_INPUT_FRAMES * len(pre) + RT_N_STATIC == 111
     assert len(set(keep)) == len(keep), "no channel may be mapped twice"
     # t2m and tp are the two the pretrained model never saw, in every frame.
     absent = {frame * len(fine) + fine.index(c)

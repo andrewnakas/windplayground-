@@ -39,13 +39,13 @@ uv pip install --python .venv-gpu/bin/python \
 
 Expect `RESULT OK` plus `windml cuda_matmul=ok`. Anything else, stop here.
 
-Override the 150 GB disk floor with `WINDML_MIN_DISK_GB=<n>` only if you have
+Override the 100 GB disk floor with `WINDML_MIN_DISK_GB=<n>` only if you have
 deliberately chosen a smaller variable subset (see below).
 
 ### 2. ERA5 cache — ~1 h, ~9 GB
 
 ```bash
-.venv-gpu/bin/python scripts/build_cache.py --variable-set rt2021
+.venv-gpu/bin/python scripts/build_cache.py --config configs/rt2021_72h.yaml
 ```
 
 Streams the WeatherBench-2 zarr and adds analytic TOA solar radiation (computed, not
@@ -56,7 +56,7 @@ downloaded — see `src/windml/data/solar.py`). Resumable per year.
 ```bash
 .venv-gpu/bin/python scripts/train.py --config configs/rt2021_72h.yaml --auto-resume
 .venv-gpu/bin/python scripts/evaluate.py \
-  --ckpt artifacts/checkpoints/rt2021_72h/best.pt --name rt2021_72h --split 2017_2018
+  --ckpt artifacts/checkpoints/rt2021_72h/best.pt --name rt2021_72h --years 2017 2018
 ```
 
 **Gate: z500 @ 72 h should land near 314**, scored on **2017–2018** (their test period,
@@ -190,3 +190,15 @@ These are not stylistic — they are what keeps the numbers meaningful.
 | download stalls at 0 B for ~13 s | normal server latency | wait |
 | CUDA OOM | batch too large for 8 GB | halve `batch_size` in the config |
 | z500 far from 314 at step 3 | reimplementation bug | stop; report the number |
+
+## Known gap — must be fixed before step 3's number means anything
+
+The eval harness scores against the **core** 8-channel truth array, whose channel order
+is `[u10, v10, t2m, msl, u850, v850, t850, z500]`. The `rt2021` set orders its outputs
+`[z500, t850, t2m]`. Nothing currently remaps between them, so an `rt2021` checkpoint
+scored today would be compared against the *wrong variables* and produce numbers that
+look plausible and are meaningless.
+
+`scripts/evaluate.py` needs a channel-name mapping from model outputs onto truth indices
+(z500 -> 7, t850 -> 6, t2m -> 2) before any RT2021 result is reported. Do not run step 3
+to completion and trust the output until that lands.

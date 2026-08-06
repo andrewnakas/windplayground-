@@ -1,0 +1,29 @@
+# Rasp & Thuerey (2021) direct 24h model -- the exact recipe, not an
+# One of the four per-lead direct models. Same recipe as rt2021_72h; see that
+# file for the provenance of every hyperparameter.
+# it means the number is no longer comparable to theirs.
+run_name: rt2021_24h
+data:
+  variable_set: rt2021     # 38 fields/frame -> 117 conv inputs with 3 statics
+  train_years: [1979, 2015]
+  val_years: [2016, 2016]
+  test_years: [2017, 2018]
+model:
+  name: rt_resnet
+  n_frames: 3              # t, t-6h, t-12h
+  params:
+    out_channels: 3        # z500, t850, t2m -- precip gets its own network
+train:
+  batch_size: 32
+  lr: 5.0e-5
+  weight_decay: 1.0e-5     # true L2 on conv kernels only (optimizer: adam)
+  optimizer: adam
+  lr_schedule: plateau
+  plateau_factor: 0.2      # x1/5
+  plateau_patience: 2
+  max_lr_drops: 2
+  early_stop_patience: 5
+  warmup_steps: 0          # the paper uses none
+  max_steps: 200000        # a ceiling; early stopping is what ends the run
+  val_every: 2000
+  direct_lead_h: 24

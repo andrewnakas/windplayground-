@@ -151,11 +151,12 @@ def test_tisr_peaks_near_the_subsolar_longitude():
 def test_rt2021_input_channels_reproduce_the_papers_117():
     from windml.config import active_variables, rt_input_channels
 
-    # 37 stored + 1 computed (TISR) = 38 fields/frame; x3 frames = 114 dynamic,
-    # +3 statics = 117. The paper states the 114.
-    assert len(active_variables("rt2021")) == 37
+    # 38 fields/frame (35 pressure-level + t2m + tp + TISR); x3 frames = 114
+    # dynamic, +3 statics = 117. The paper states the 114.
+    assert len(active_variables("rt2021")) == 38
     assert rt_input_channels("rt2021") == 117
-    # CMIP6 has no t2m or precip, so pretraining sees a narrower stack.
+    # CMIP6 lacks t2m and precip, so pretraining sees a narrower stack -- but
+    # TISR is computed, not archived, so it survives into pretraining.
     assert rt_input_channels("rt2021_cmip") == 111
 
 
@@ -173,4 +174,5 @@ def test_cmip_subset_is_pressure_levels_only():
     era = {v["short"] for v in active_variables("rt2021")}
     cmip = {v["short"] for v in active_variables("rt2021_cmip")}
     assert era - cmip == {"t2m", "tp"}
-    assert len(cmip) == 35  # 5 variables x 7 levels
+    assert "tisr" in cmip, "TISR is computed, so pretraining has it too"
+    assert len(cmip) == 36  # 5 variables x 7 levels + computed TISR

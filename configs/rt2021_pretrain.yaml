@@ -1,0 +1,44 @@
+# CMIP6 pretraining -- the step that separates Rasp & Thuerey's ERA5-only z500
+# of 314 from their published 268. 150+ years of MPI-ESM-HR historical output
+# (see scripts/fetch_cmip.py; ~154 GB at 5.625 deg).
+#
+# The input stack is NARROWER than fine-tuning: the CMIP archive ships only the
+# five pressure-level variables, so there is no 2m temperature and no
+# precipitation. That is 36 fields/frame -> 111 conv inputs, against the ERA5
+# set's 38 -> 117. TISR is present in both because it is computed from solar
+# geometry rather than read from an archive.
+#
+# scripts/train.py --init-ckpt bridges the two with models/grow.py, which
+# zero-fills the new stem columns so the fine-tuned model starts as a
+# bit-identical copy of this one.
+#
+# Dropout: the paper turns it OFF for the pretrained model ("no dropout was
+# used as this led to better validation scores"), and fine-tunes at a much
+# lower LR (5e-7 against 5e-5).
+run_name: rt2021_pretrain
+data:
+  variable_set: rt2021_cmip
+  cache_dir: artifacts/data-cmip
+  train_years: [1850, 2000]
+  val_years: [2001, 2005]
+  test_years: [2006, 2010]
+model:
+  name: rt_resnet
+  n_frames: 3
+  params:
+    out_channels: 3
+    dropout: 0.0
+train:
+  batch_size: 32
+  lr: 5.0e-5
+  weight_decay: 1.0e-5
+  optimizer: adam
+  lr_schedule: plateau
+  plateau_factor: 0.2
+  plateau_patience: 2
+  max_lr_drops: 2
+  early_stop_patience: 5
+  warmup_steps: 0
+  max_steps: 400000
+  val_every: 5000
+  direct_lead_h: 72

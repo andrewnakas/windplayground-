@@ -56,9 +56,7 @@ class Trainer:
             lat_weights,
             make_channel_weights(cfg.train.channel_loss_weights, cfg.data.channels),
         ).to(self.device)
-        self.opt = torch.optim.AdamW(
-            model.parameters(), lr=cfg.train.lr, weight_decay=cfg.train.weight_decay
-        )
+        self.opt = self._build_optimizer(model, cfg)
         self.K = cfg.train.rollout_steps
         self.diff_std_t = torch.from_numpy(
             train_ds.norm.diff_std.astype(np.float32)
@@ -66,13 +64,40 @@ class Trainer:
         self.mean_t = torch.from_numpy(train_ds.norm.mean.astype(np.float32)).to(self.device)
         self.std_t = torch.from_numpy(train_ds.norm.std.astype(np.float32)).to(self.device)
 
+    @staticmethod
+    def _build_optimizer(model: torch.nn.Module, cfg) -> torch.optim.Optimizer:
+        """AdamW for our models; plain Adam with conv-only L2 for RT2021.
+
+        Keras `kernel_regularizer=l2(1e-5)` adds the penalty to the loss, which
+        is what plain Adam's `weight_decay` does. AdamW decouples it -- a
+        different algorithm with a different effective strength, so using it
+        here would quietly not be the paper's recipe. The penalty also applies
+        to convolution *kernels* only: Keras never regularizes biases or
+        BatchNorm scales, and models expose the right tensors via
+        `conv_params()`.
+        """
+        wd = cfg.train.weight_decay
+        if cfg.train.optimizer != "adam":
+            return torch.optim.AdamW(model.parameters(), lr=cfg.train.lr,
+                                     weight_decay=wd)
+        if hasattr(model, "conv_params"):
+            kernels = {id(p) for p in model.conv_params()}
+            decay = [p for p in model.parameters() if id(p) in kernels]
+            rest = [p for p in model.parameters() if id(p) not in kernels]
+            groups = [{"params": decay, "weight_decay": wd},
+                      {"params": rest, "weight_decay": 0.0}]
+        else:
+            groups = [{"params": list(model.parameters()), "weight_decay": wd}]
+        return torch.optim.Adam(groups, lr=cfg.train.lr)
+
     def _rollout_loss(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """x: (B, F, H, W) input; y: (B, K, C, H, W) normalized residual targets."""
         C = y.shape[2]
+        n_frames = self.train_ds.n_frames
         loss = torch.zeros((), device=self.device)
-        state_norm = x[:, :C]  # normalized current state
-        prev_norm = x[:, C : 2 * C] if self.train_ds.two_frame else None
-        extras = x[:, 2 * C :] if self.train_ds.two_frame else x[:, C:]
+        # Frames are laid out most-recent-first: t, t-6h, t-12h, ...
+        frames = [x[:, i * C : (i + 1) * C] for i in range(n_frames)]
+        extras = x[:, n_frames * C :]
         inp = x
         for k in range(self.K):
             pred = self.model(inp)
@@ -82,11 +107,11 @@ class Trainer:
             # advance the normalized state: x_{t+1} = x_t + resid, in physical
             # units; equivalently in normalized space via std ratios
             resid_phys = pred * self.diff_std_t
-            state_phys = state_norm * self.std_t + self.mean_t + resid_phys
+            state_phys = frames[0] * self.std_t + self.mean_t + resid_phys
             new_norm = (state_phys - self.mean_t) / self.std_t
-            prev_norm = state_norm
-            state_norm = new_norm
-            frames = [state_norm] + ([prev_norm] if self.train_ds.two_frame else [])
+            # push the new state on and drop the oldest, so the stack keeps its
+            # width whatever n_frames is
+            frames = [new_norm] + frames[:-1]
             # time features stale by 6h per step; acceptable at K<=4 (dominant
             # extras are static fields)
             inp = torch.cat(frames + [extras], dim=1)
@@ -117,6 +142,10 @@ class Trainer:
                 "model_name": self.cfg.model.name,
                 "model_params": self.cfg.model.params,
                 "two_frame": self.cfg.model.two_frame,
+                # evaluate.py rebuilds the dataset from these; without
+                # n_frames a 3-frame model would be reconstructed with a
+                # 2-frame input width and fail to load its own weights
+                "n_frames": self.train_ds.n_frames,
                 "direct_lead_h": self.cfg.train.direct_lead_h,
                 "variable_set": self.cfg.data.variable_set,
                 "run_name": self.cfg.run_name,
@@ -169,9 +198,18 @@ class Trainer:
         t0 = time.time()
         self.model.train()
         done = False
+        # RT2021 anneals on a validation plateau instead of a cosine and stops
+        # early. Their patience is counted in epochs; we count val intervals,
+        # which is the closest analogue given we train by step budget. Set
+        # val_every to roughly one epoch of samples to match their cadence.
+        plateau = cfg.lr_schedule == "plateau"
+        lr = cfg.lr
+        stalled = 0
+        n_drops = 0
         while not done:
             for x, y in loader:
-                lr = cosine_lr(step, max_steps, cfg.lr, cfg.warmup_steps)
+                if not plateau:
+                    lr = cosine_lr(step, max_steps, cfg.lr, cfg.warmup_steps)
                 for g in self.opt.param_groups:
                     g["lr"] = lr
                 x, y = x.to(self.device), y.to(self.device)
@@ -200,7 +238,21 @@ class Trainer:
                           f"val {val_loss:.4f} [{elapsed:.0f}s]")
                     if val_loss < best_val:
                         best_val = val_loss
+                        stalled = 0
                         self.save("best.pt", step, val_loss, best_val)
+                    elif plateau:
+                        stalled += 1
+                        if stalled > cfg.early_stop_patience:
+                            print(f"early stop: {stalled} val intervals without "
+                                  f"improvement (best {best_val:.4f})")
+                            done = True
+                        elif stalled > cfg.plateau_patience:
+                            if n_drops < cfg.max_lr_drops:
+                                lr *= cfg.plateau_factor
+                                n_drops += 1
+                                stalled = 0
+                                print(f"lr -> {lr:.2e} (drop {n_drops}/"
+                                      f"{cfg.max_lr_drops})")
                     # checkpoint resume state every val interval: a container
                     # restart then costs at most one interval of progress
                     self.save("last.pt", step, val_loss, best_val)

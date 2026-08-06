@@ -24,11 +24,25 @@ def year_range_times(years: tuple[int, int]) -> np.ndarray:
 
 
 def build_static_channels(cfg: DataConfig) -> np.ndarray:
-    """(5, H, W): normalized land-sea mask + orography, and 3 spherical encodings."""
+    """Constant per-pixel channels.
+
+    Default (5, H, W): normalized land-sea mask + orography, and 3 spherical
+    encodings.
+
+    For the `rt2021` sets this returns exactly (3, H, W) -- land-sea mask,
+    orography, latitude -- because that is the paper's constant set, and
+    because the extra encodings would push the input past the 117 channels it
+    reports. Latitude is given as sin(lat), which is the same information on a
+    bounded scale.
+    """
     statics = load_statics(cfg)
     lsm = statics["land_sea_mask"]
     oro = statics["geopotential_at_surface"]
     oro = (oro - oro.mean()) / (oro.std() + 1e-8)
+    if cfg.variable_set.startswith("rt2021"):
+        lat = np.sin(np.deg2rad(statics["latitude"]))[:, None]
+        lat = np.broadcast_to(lat, lsm.shape)
+        return np.stack([lsm, oro, lat]).astype(np.float32)
     enc = spatial_encodings(statics["latitude"], statics["longitude"])
     return np.concatenate([np.stack([lsm, oro]), enc]).astype(np.float32)
 
@@ -48,11 +62,17 @@ class Era5Dataset(Dataset):
         rollout_steps: int = 1,
         two_frame: bool = True,
         direct_steps: int | None = None,
+        n_frames: int | None = None,
     ):
         """direct_steps: predict the state this many 6h steps ahead in ONE shot
         instead of rolling the 6h model forward. This is how Rasp & Thuerey's
         WeatherBench ResNet reaches 3 days, and it avoids the error the
-        autoregressive rollout accumulates over 12 steps."""
+        autoregressive rollout accumulates over 12 steps.
+
+        n_frames: how many consecutive past states to stack (t, t-6h, t-12h...).
+        RT2021 uses 3; our other models use 2. Defaults to the `two_frame`
+        setting so existing configs keep their behaviour unchanged.
+        """
         self.array = np.ascontiguousarray(load_years(cfg, list(range(years[0], years[1] + 1))))
         self.times = year_range_times(years)
         assert len(self.times) == self.array.shape[0], (
@@ -60,12 +80,17 @@ class Era5Dataset(Dataset):
         )
         self.norm = normalizer
         self.K = rollout_steps
-        self.two_frame = two_frame
+        self.n_frames = n_frames if n_frames is not None else (2 if two_frame else 1)
+        self.two_frame = self.n_frames >= 2
         self.direct_steps = direct_steps
-        self.static = build_static_channels(cfg)  # (5, H, W)
+        self.static = build_static_channels(cfg)
+        # RT2021 has no time-of-year/day features: TISR already carries that
+        # signal, and adding them would exceed the paper's 117 input channels.
+        self.use_time_feats = not cfg.variable_set.startswith("rt2021")
         hours = (self.times - np.datetime64("1970-01-01T00", "h")) / np.timedelta64(1, "h")
         self.time_feats = time_encodings(hours.astype(np.float64))  # (T, 4)
-        self.margin = 1 if two_frame else 0
+        # earliest usable index: enough history for every stacked frame
+        self.margin = self.n_frames - 1
         # scale for the direct target: spread of L-step differences, estimated
         # on a sample so it is cheap and stable
         self.direct_std = (
@@ -92,16 +117,25 @@ class Era5Dataset(Dataset):
     @property
     def n_input_channels(self) -> int:
         C = self.array.shape[1]
-        return C * (2 if self.two_frame else 1) + self.static.shape[0] + 4
+        n_time = 4 if self.use_time_feats else 0
+        return C * self.n_frames + self.static.shape[0] + n_time
 
     def input_at(self, t: int) -> np.ndarray:
-        """Assemble the model input for absolute time index t."""
-        C, H, W = self.array.shape[1:]
-        frames = [self.norm.norm_state(self.array[t : t + 1])[0]]
-        if self.two_frame:
-            frames.append(self.norm.norm_state(self.array[t - 1 : t])[0])
-        tf = np.broadcast_to(self.time_feats[t][:, None, None], (4, H, W))
-        return np.concatenate(frames + [self.static, tf]).astype(np.float32)
+        """Assemble the model input for absolute time index t.
+
+        Frames are stacked most-recent-first (t, t-6h, t-12h, ...), which is
+        the order `channel_index_map` in models/grow.py assumes when mapping a
+        pretrained stack onto a wider fine-tuning one.
+        """
+        H, W = self.array.shape[2:]
+        frames = [
+            self.norm.norm_state(self.array[t - k : t - k + 1])[0]
+            for k in range(self.n_frames)
+        ]
+        parts = frames + [self.static]
+        if self.use_time_feats:
+            parts.append(np.broadcast_to(self.time_feats[t][:, None, None], (4, H, W)))
+        return np.concatenate(parts).astype(np.float32)
 
     def __getitem__(self, idx: int):
         t = idx + self.margin
