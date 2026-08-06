@@ -10,7 +10,12 @@ name: Refresh live wind
 # an unchanged run produces an identical tree and no commit, which keeps this
 # from filling the history with noise.
 #
-# Pushing to main triggers pages.yml, which does the actual deploy.
+# This job DEPLOYS PAGES ITSELF rather than relying on pages.yml firing from
+# its push. GitHub deliberately does not trigger workflows for pushes made with
+# the built-in GITHUB_TOKEN -- that is its infinite-loop guard -- so a
+# "push and let the other workflow handle it" design would commit fresh data
+# and then never publish it. The commit keeps the repo the source of truth; the
+# deploy step is what makes the site actually change.
 
 on:
   schedule:
@@ -18,7 +23,9 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write   # commit the refreshed JSON
+  pages: write      # and publish it ourselves
+  id-token: write
 
 concurrency:
   group: live-wind
@@ -27,6 +34,8 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
     steps:
       - uses: actions/checkout@v4
         with:
@@ -70,3 +79,17 @@ jobs:
           INIT=$(python -c "import json;m=json.load(open('viewer/data/manifest.json'));print(next((s.get('init_time','?') for s in m['sources'] if s['kind']=='live'),'?'))")
           git commit -m "Live wind refresh: init $INIT"
           git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        id: commit
+
+      # Only publish when something actually changed -- a no-op cycle should
+      # not burn a Pages deployment.
+      - uses: actions/configure-pages@v5
+        if: steps.commit.outputs.changed == 'true'
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.commit.outputs.changed == 'true'
+        with:
+          path: docs
+      - uses: actions/deploy-pages@v4
+        if: steps.commit.outputs.changed == 'true'
+        id: deployment
