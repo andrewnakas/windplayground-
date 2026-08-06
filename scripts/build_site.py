@@ -175,38 +175,59 @@ def landing() -> str:
         ("Literature anchor (z500 @72h)", f"{anchor:.0f} vs 268" if anchor else "—",
          "not reached — see Research", False),
     ]
-    card_html = "".join(
-        f'<div class=card><div class=k>{k}</div>'
-        f'<div class="v{" win" if win else ""}">{v}</div><div class=s>{s}</div></div>'
-        for k, v, s, win in cards)
+    stat_html = "".join(
+        f'<div class=stat><div class="v{" win" if win else ""}">{v}</div>'
+        f'<div class=k>{k}</div></div>'
+        for k, v, _s, win in cards)
 
-    return page("windplayground — global wind forecasting with ML", f"""
-<h1>Global wind forecasting with machine learning</h1>
-<p class=lede>Recreations of the leading global ML weather models at CPU scale, scored
-WeatherBench-style on wind — plus a multi-model ensemble that beats every published
-frontier model on 2020 wind at the evaluated resolution.</p>
-<div class=cards>{card_html}</div>
-<p>
-<a class=cta href="viewer/index.html">Open the wind viewer &rarr;</a>
-<a class=cta href="report.html" style="background:transparent;color:var(--accent);border:1px solid var(--line)">Read the research</a>
-</p>
-<h2>What's here</h2>
-<ul>
-<li><strong>An interactive wind map</strong> — windy-style particle animation of 10m wind,
-with ERA5 truth, our four trained models, the published GraphCast / GenCast / Pangu / HRES /
-FuXi forecasts, and live ECMWF AIFS runs all selectable.</li>
-<li><strong>A literature review</strong> of the top papers and groups on wind benchmarks,
-and what we found reproducing them.</li>
-<li><strong>Full results tables</strong> — every model scored by one pipeline on the same
-init times against the same truth.</li>
-</ul>
-<div class=note>Everything our models produce is at 5.625&deg; on 4 CPU cores; the frontier
-models were trained at 0.25&deg; on hundreds of GPU-days. Those rows are a reference
-ceiling, not a like-for-like architecture comparison. The ensemble result <em>is</em>
-like-for-like — it beats those models using their own published forecasts.</div>
-<h2>Skill vs lead time</h2>
-<img src="figures/frontier_wind.png" alt="10m wind speed RMSE against lead time">
-""")
+    # The map IS the page. It was previously one click behind a wall of text,
+    # which buried the only part of this project that is worth just looking at.
+    # An iframe rather than promoting viewer/index.html to the site root:
+    # the viewer fetches data/ and vendor/ by RELATIVE path, so moving it means
+    # moving both trees and rewriting those fetches -- real breakage risk for a
+    # cosmetic gain. This keeps the viewer self-contained and still linkable at
+    # /viewer/.
+    return f"""<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content='width=device-width,initial-scale=1'>
+<title>windplayground — live global wind</title>
+<style>
+{CSS}
+html,body{{height:100%;overflow:hidden}}
+.app{{display:flex;flex-direction:column;height:100vh}}
+.topbar{{flex:0 0 auto;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line)}}
+.topbar .brand{{font-weight:700;letter-spacing:.02em;white-space:nowrap}}
+.topbar .tag{{color:var(--muted);font-size:13px;white-space:nowrap}}
+.stats{{display:flex;gap:16px;margin-left:auto;flex-wrap:wrap}}
+.stat{{text-align:right;line-height:1.15}}
+.stat .v{{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}}
+.stat .k{{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}}
+.stat .v.win{{color:var(--accent)}}
+.links{{display:flex;gap:10px;white-space:nowrap}}
+.links a{{font-size:13px;padding:6px 11px;border:1px solid var(--line);
+  border-radius:8px;color:var(--text);text-decoration:none}}
+.links a:hover{{border-color:var(--accent);color:var(--accent)}}
+frame-wrap{{flex:1 1 auto;min-height:0}}
+iframe{{width:100%;height:100%;border:0;display:block}}
+@media (max-width:760px){{.stats{{display:none}}}}
+</style></head><body>
+<div class=app>
+  <div class=topbar>
+    <span class=brand>windplayground</span>
+    <span class=tag>10&thinsp;m wind &middot; live operational runs, frontier models,
+      and every model we trained</span>
+    <div class=stats>{stat_html}</div>
+    <div class=links>
+      <a href="report.html">Research</a>
+      <a href="results.html">Results</a>
+      <a href="https://github.com/andrewnakas/windplayground-">GitHub</a>
+    </div>
+  </div>
+  <frame-wrap style="display:block"><iframe src="viewer/index.html"
+    title="Interactive global wind map" loading="eager"></iframe></frame-wrap>
+</div>
+</body></html>
+"""
 
 
 def main() -> None:

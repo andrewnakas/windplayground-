@@ -1,8 +1,9 @@
 {
   "inits": [
     "2020-01-15T00",
+    "2020-07-15T00",
     "2020-10-28T00",
-    "2026-08-04T12"
+    "latest"
   ],
   "leads": [
     0,
@@ -19,6 +20,7 @@
       "kind": "truth",
       "inits": [
         "2020-01-15T00",
+        "2020-07-15T00",
         "2020-10-28T00"
       ],
       "leads": [
@@ -31,11 +33,12 @@
       ]
     },
     {
-      "id": "unet_ft4",
-      "label": "ours: U-Net + rollout curriculum",
+      "id": "unet",
+      "label": "ours: U-Net (baseline)",
       "kind": "ckpt",
       "inits": [
         "2020-01-15T00",
+        "2020-07-15T00",
         "2020-10-28T00"
       ],
       "leads": [
@@ -45,14 +48,111 @@
         72,
         96,
         120
-      ]
+      ],
+      "rmse72": 2.439
     },
     {
-      "id": "vit_ft2",
+      "id": "unet_ft2",
+      "label": "ours: U-Net + rollout K=2",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ],
+      "rmse72": 2.237
+    },
+    {
+      "id": "unet_ft4",
+      "label": "ours: U-Net + rollout K=4",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ],
+      "rmse72": 2.172
+    },
+    {
+      "id": "unet_long",
+      "label": "ours: U-Net (long schedule)",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ],
+      "rmse72": 2.174
+    },
+    {
+      "id": "unet_long_ft2",
+      "label": "ours: U-Net long + rollout K=2",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ],
+      "rmse72": 2.107
+    },
+    {
+      "id": "unet_long_ft4",
+      "label": "ours: U-Net long + rollout K=4",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ],
+      "rmse72": 2.047
+    },
+    {
+      "id": "vit",
       "label": "ours: Stormer-style ViT",
       "kind": "ckpt",
       "inits": [
         "2020-01-15T00",
+        "2020-07-15T00",
         "2020-10-28T00"
       ],
       "leads": [
@@ -62,14 +162,35 @@
         72,
         96,
         120
-      ]
+      ],
+      "rmse72": 2.76
     },
     {
-      "id": "afno_ft2",
+      "id": "vit_ft2",
+      "label": "ours: ViT + rollout K=2",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ],
+      "rmse72": 2.603
+    },
+    {
+      "id": "afno",
       "label": "ours: AFNO (FourCastNet)",
       "kind": "ckpt",
       "inits": [
         "2020-01-15T00",
+        "2020-07-15T00",
         "2020-10-28T00"
       ],
       "leads": [
@@ -79,7 +200,27 @@
         72,
         96,
         120
-      ]
+      ],
+      "rmse72": 2.818
+    },
+    {
+      "id": "afno_ft2",
+      "label": "ours: AFNO + rollout K=2",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ],
+      "rmse72": 2.71
     },
     {
       "id": "graph",
@@ -87,6 +228,7 @@
       "kind": "ckpt",
       "inits": [
         "2020-01-15T00",
+        "2020-07-15T00",
         "2020-10-28T00"
       ],
       "leads": [
@@ -96,6 +238,80 @@
         72,
         96,
         120
+      ],
+      "rmse72": 3.311
+    },
+    {
+      "id": "levels72",
+      "label": "ours: vertical inputs, direct 72h",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        72
+      ],
+      "rmse72": 2.229
+    },
+    {
+      "id": "levels120",
+      "label": "ours: vertical inputs, direct 120h",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        120
+      ]
+    },
+    {
+      "id": "anchor72",
+      "label": "ours: anchor attempt (6.6M, z500-weighted)",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        72
+      ],
+      "rmse72": 2.226
+    },
+    {
+      "id": "resnet72",
+      "label": "ours: full-res ResNet, direct 72h",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        72
+      ],
+      "rmse72": 2.752
+    },
+    {
+      "id": "resnet72_big",
+      "label": "ours: full-res ResNet 1.7M, direct 72h",
+      "kind": "ckpt",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        72
       ]
     },
     {
@@ -104,6 +320,7 @@
       "kind": "competitor",
       "inits": [
         "2020-01-15T00",
+        "2020-07-15T00",
         "2020-10-28T00"
       ],
       "leads": [
@@ -113,7 +330,8 @@
         72,
         96,
         120
-      ]
+      ],
+      "rmse72": 0.858
     },
     {
       "id": "gencast_mean",
@@ -121,6 +339,7 @@
       "kind": "competitor",
       "inits": [
         "2020-01-15T00",
+        "2020-07-15T00",
         "2020-10-28T00"
       ],
       "leads": [
@@ -130,7 +349,8 @@
         72,
         96,
         120
-      ]
+      ],
+      "rmse72": 0.862
     },
     {
       "id": "pangu",
@@ -138,6 +358,7 @@
       "kind": "competitor",
       "inits": [
         "2020-01-15T00",
+        "2020-07-15T00",
         "2020-10-28T00"
       ],
       "leads": [
@@ -147,7 +368,8 @@
         72,
         96,
         120
-      ]
+      ],
+      "rmse72": 0.909
     },
     {
       "id": "hres",
@@ -155,6 +377,7 @@
       "kind": "competitor",
       "inits": [
         "2020-01-15T00",
+        "2020-07-15T00",
         "2020-10-28T00"
       ],
       "leads": [
@@ -164,7 +387,27 @@
         72,
         96,
         120
-      ]
+      ],
+      "rmse72": 0.998
+    },
+    {
+      "id": "fuxi",
+      "label": "FuXi",
+      "kind": "competitor",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ],
+      "rmse72": 0.853
     },
     {
       "id": "persistence",
@@ -172,6 +415,7 @@
       "kind": "persistence",
       "inits": [
         "2020-01-15T00",
+        "2020-07-15T00",
         "2020-10-28T00"
       ],
       "leads": [
@@ -181,20 +425,42 @@
         72,
         96,
         120
-      ]
+      ],
+      "rmse72": 3.11
     },
     {
       "id": "aifs_live",
       "label": "ECMWF AIFS (operational ML) \u2014 live",
       "kind": "live",
       "inits": [
-        "2026-08-04T12"
+        "latest"
       ],
       "leads": [
         0,
         24,
-        72
-      ]
+        48,
+        72,
+        96,
+        120
+      ],
+      "init_time": "2026-08-06T12:00:00Z"
+    },
+    {
+      "id": "gfs_live",
+      "label": "NOAA GFS (operational physics) \u2014 live",
+      "kind": "live",
+      "inits": [
+        "latest"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ],
+      "init_time": "2026-08-06T12:00:00Z"
     }
   ],
   "grid": {

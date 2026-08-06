@@ -78,6 +78,7 @@
   <div class="btns">
     <button class="btn" id="playBtn">▶ Animate leads</button>
     <button class="btn" id="truthBtn">Compare vs ERA5</button>
+    <button class="btn on" id="landBtn">Land</button>
   </div>
 
   <div id="status">Loading…</div>
@@ -103,6 +104,17 @@
   const statusEl = document.getElementById('status');
   const say = (msg, isErr) => { statusEl.textContent = msg; statusEl.className = isErr ? 'err' : ''; };
 
+  // Land was previously filled #161d33 against a #0b1020 background -- drawn,
+  // but invisible, so wind over land looked like wind over nothing. 'bright'
+  // is the default; 'dim' is the old look for when the particles matter more
+  // than the geography.
+  const LAND_STYLE = {
+    bright: { color: '#8fa6d8', weight: 1.1, fillColor: '#243154', fillOpacity: 1 },
+    dim:    { color: '#3d4a6d', weight: 0.8, fillColor: '#161d33', fillOpacity: 1 },
+  };
+  let landLayer = null;
+  let landBright = true;
+
   const map = L.map('map', {
     center: [20, 0], zoom: 2, minZoom: 1, maxZoom: 6,
     worldCopyJump: true, attributionControl: false,
@@ -111,10 +123,11 @@
   // Self-contained basemap: Natural Earth land polygons, no external tiles.
   try {
     const land = await (await fetch('vendor/land.geo.json')).json();
-    L.geoJSON(land, {
-      style: { color: '#3d4a6d', weight: 0.8, fillColor: '#161d33', fillOpacity: 1 },
+    window.__land = L.geoJSON(land, {
+      style: LAND_STYLE.bright,
       interactive: false,
     }).addTo(map);
+    landLayer = window.__land;
   } catch (e) { say('Could not load coastlines: ' + e.message, true); }
 
   L.control.scale({ imperial: false, position: 'bottomright' }).addTo(map);
@@ -146,12 +159,21 @@
     og.label = groupLabel;
     for (const s of inGroup) {
       const o = document.createElement('option');
-      o.value = s.id; o.textContent = s.label;
+      // show the score next to the name so picking a model and judging it
+      // happen in the same place
+      const score = s.rmse72 != null ? `  -  ${s.rmse72} m/s @72h` : '';
+      o.value = s.id; o.textContent = s.label + score;
       og.appendChild(o);
     }
     sourceSel.appendChild(og);
   }
   sourceSel.value = 'era5';
+
+  document.getElementById('landBtn').addEventListener('click', (e) => {
+    landBright = !landBright;
+    e.target.classList.toggle('on', landBright);
+    if (landLayer) landLayer.setStyle(landBright ? LAND_STYLE.bright : LAND_STYLE.dim);
+  });
 
   const byId = Object.fromEntries(manifest.sources.map(s => [s.id, s]));
   let leads = [];
@@ -165,7 +187,22 @@
     initSel.innerHTML = '';
     for (const t of inits) {
       const o = document.createElement('option');
-      o.value = t; o.textContent = t.replace('T', '  ') + ':00 UTC';
+      // A live source stores its run under the fixed key "latest" so refreshes
+      // overwrite instead of piling up; the real init time rides in the
+      // manifest. Show that, plus its age, so "live" is checkable and not
+      // just a label.
+      if (t === 'latest' && src.init_time) {
+        const d = new Date(src.init_time);
+        const hrs = (Date.now() - d.getTime()) / 3.6e6;
+        const age = hrs < 1 ? 'just now'
+          : hrs < 48 ? `${Math.round(hrs)} h ago`
+          : `${Math.round(hrs / 24)} d ago`;
+        o.value = t;
+        o.textContent = `${String(d.getUTCHours()).padStart(2, '0')}Z `
+          + `${d.toISOString().slice(0, 10)}  (${age})`;
+      } else {
+        o.value = t; o.textContent = t.replace('T', '  ') + ':00 UTC';
+      }
       initSel.appendChild(o);
     }
     if (inits.includes(wanted)) initSel.value = wanted;

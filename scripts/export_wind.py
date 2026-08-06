@@ -31,24 +31,70 @@ U10, V10 = CHANNELS.index("u10"), CHANNELS.index("v10")
 STATS_PATH = ARTIFACTS / "data" / "stats.json"
 OUT_DIR = Path("viewer/data")
 
-# what the model picker offers: (id, label, kind, spec)
-SOURCES = [
-    ("era5", "ERA5 (truth)", "truth", None),
-    ("unet_ft4", "ours: U-Net + rollout curriculum", "ckpt",
-     ARTIFACTS / "checkpoints" / "unet_ft4" / "best.pt"),
-    ("vit_ft2", "ours: Stormer-style ViT", "ckpt",
-     ARTIFACTS / "checkpoints" / "vit_ft2" / "best.pt"),
-    ("afno_ft2", "ours: AFNO (FourCastNet)", "ckpt",
-     ARTIFACTS / "checkpoints" / "afno_ft2" / "best.pt"),
-    ("graph", "ours: GraphCast-mini GNN", "ckpt",
-     ARTIFACTS / "checkpoints" / "graph" / "best.pt"),
-    ("graphcast", "GraphCast (DeepMind)", "competitor", "graphcast_2020"),
-    ("gencast_mean", "GenCast ensemble mean (DeepMind)", "competitor",
-     "gencast_mean_2020"),
-    ("pangu", "Pangu-Weather (Huawei)", "competitor", "pangu_2020"),
-    ("hres", "ECMWF HRES", "competitor", "hres_2020"),
-    ("persistence", "persistence", "persistence", None),
+# Every trained checkpoint the picker offers, newest lineage last. A model only
+# appears if its best.pt exists, so a partly-trained repo still exports cleanly.
+TRAINED = [
+    ("unet", "U-Net (baseline)"),
+    ("unet_ft2", "U-Net + rollout K=2"),
+    ("unet_ft4", "U-Net + rollout K=4"),
+    ("unet_long", "U-Net (long schedule)"),
+    ("unet_long_ft2", "U-Net long + rollout K=2"),
+    ("unet_long_ft4", "U-Net long + rollout K=4"),
+    ("vit", "Stormer-style ViT"),
+    ("vit_ft2", "ViT + rollout K=2"),
+    ("afno", "AFNO (FourCastNet)"),
+    ("afno_ft2", "AFNO + rollout K=2"),
+    ("graph", "GraphCast-mini GNN"),
+    ("levels72", "vertical inputs, direct 72h"),
+    ("levels120", "vertical inputs, direct 120h"),
+    ("anchor72", "anchor attempt (6.6M, z500-weighted)"),
+    ("resnet72", "full-res ResNet, direct 72h"),
+    ("resnet72_big", "full-res ResNet 1.7M, direct 72h"),
 ]
+
+# what the model picker offers: (id, label, kind, spec)
+SOURCES = (
+    [("era5", "ERA5 (truth)", "truth", None)]
+    + [
+        (rid, f"ours: {label}", "ckpt",
+         ARTIFACTS / "checkpoints" / rid / "best.pt")
+        for rid, label in TRAINED
+        if (ARTIFACTS / "checkpoints" / rid / "best.pt").exists()
+    ]
+    + [
+        ("graphcast", "GraphCast (DeepMind)", "competitor", "graphcast_2020"),
+        ("gencast_mean", "GenCast ensemble mean (DeepMind)", "competitor",
+         "gencast_mean_2020"),
+        ("pangu", "Pangu-Weather (Huawei)", "competitor", "pangu_2020"),
+        ("hres", "ECMWF HRES", "competitor", "hres_2020"),
+        ("fuxi", "FuXi", "competitor", "fuxi_2020"),
+        ("persistence", "persistence", "persistence", None),
+    ]
+)
+
+
+def scored_rmse(model_id: str, variable: str = "wind_speed",
+                lead_h: int = 72) -> float | None:
+    """72h wind-speed RMSE for a model, or None if it was never scored.
+
+    Shown beside each name in the picker so choosing a model and judging it
+    happen in the same place. Read from the results CSVs rather than hardcoded,
+    for the same reason the landing page does: the site cannot then disagree
+    with the numbers it publishes.
+    """
+    path = ARTIFACTS / "results" / f"{model_id}_test.csv"
+    if not path.exists():
+        return None
+    import csv as _csv
+
+    with open(path) as fh:
+        for row in _csv.DictReader(fh):
+            if row["variable"] == variable and int(row["lead_h"]) == lead_h:
+                try:
+                    return float(row["rmse"])
+                except (ValueError, TypeError):
+                    return None
+    return None
 
 
 def velocity_records(u: np.ndarray, v: np.ndarray, lat: np.ndarray,
@@ -100,7 +146,9 @@ def main() -> None:
     lat, lon = statics["latitude"], statics["longitude"]
     truth = np.asarray(load_years(cfg, [2020]), dtype=np.float32)
     times = year_range_times((2020, 2020))
-    norm = Normalizer(load_stats(STATS_PATH))
+    # each checkpoint now brings its own normalizer, built from the stats of
+    # the variable set it was trained on -- a single shared one was what made
+    # the multi-level models unloadable here
 
     init_idx = {}
     for s in args.inits:
@@ -125,15 +173,37 @@ def main() -> None:
                 print(f"skip {src_id}: no checkpoint yet")
                 continue
             payload = torch.load(spec, map_location="cpu", weights_only=False)
+            from windml.eval.forecasters import DirectForecaster, scored_channel_map
             from windml.models import build_model
 
-            two_frame = payload.get("two_frame", True)
-            ds = Era5Dataset(cfg, (2020, 2020), norm, rollout_steps=1, two_frame=two_frame)
+            # Each checkpoint carries the variable set it was trained on, and
+            # they differ: 'core' is 25 inputs / 8 outputs, 'levels' is 49 / 20.
+            # Building every model against the default config loaded a
+            # 49-channel checkpoint into a 25-channel model and blew up on
+            # levels72. Mirror what scripts/evaluate.py does -- dataset first,
+            # because only it knows the input width.
+            mcfg = DataConfig(variable_set=payload.get("variable_set", "core"))
+            mnorm = Normalizer(load_stats(mcfg.stats_path))
+            direct_h = payload.get("direct_lead_h")
+            ds = Era5Dataset(
+                mcfg, (2020, 2020), mnorm, rollout_steps=1,
+                two_frame=payload.get("two_frame", True),
+                direct_steps=(direct_h // 6) if direct_h else None,
+                n_frames=payload.get("n_frames"),
+            )
             model = build_model(payload["model_name"],
                                 in_channels=ds.n_input_channels,
+                                out_channels=len(mcfg.target_channels),
                                 **payload.get("model_params", {}))
             model.load_state_dict(payload["state_dict"])
-            forecaster = ModelForecaster(model, ds, norm, src_id)
+            cmap = scored_channel_map(mcfg.target_channels)
+            if direct_h:
+                # a one-shot model produces exactly one lead; the rest stay NaN
+                # and the viewer simply has fewer frames for it
+                forecaster = DirectForecaster(model, ds, src_id, channel_map=cmap)
+            else:
+                forecaster = ModelForecaster(model, ds, mnorm, src_id,
+                                             channel_map=cmap)
         elif kind == "competitor":
             try:
                 forecaster = CompetitorForecaster(cfg, spec, 2020, display_name=src_id)
@@ -167,10 +237,16 @@ def main() -> None:
         if wrote_inits:
             # per-source lists: the viewer filters its pickers by these, so a
             # live 2026 run and a 2020 research forecast can coexist
-            manifest["sources"].append({
+            entry = {
                 "id": src_id, "label": label, "kind": kind,
                 "inits": wrote_inits, "leads": sorted(wrote_leads),
-            })
+            }
+            # the CSV name matches the source id for our models; competitors
+            # carry the _2020 suffix their result files use
+            rmse = scored_rmse(src_id) or scored_rmse(f"{src_id}_2020")
+            if rmse is not None:
+                entry["rmse72"] = round(rmse, 3)
+            manifest["sources"].append(entry)
             print(f"exported {src_id}")
 
     # keep live sources added by scripts/fetch_dynamical.py: they are fetched
