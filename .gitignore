@@ -16,3 +16,8 @@ artifacts/checkpoints/**/last.pt
 .venv-dyn/
 # ephemeral snapshot of the queue scripts taken by scripts/supervise.sh
 artifacts/checkpoints/_running/
+
+# never commit cloud credentials
+.kaggle/
+kaggle.json
+*.kaggle.json
