@@ -418,6 +418,41 @@ So: the recreation reaches and slightly exceeds the published ERA5-only model. T
 remaining 306.7 → 268 step is CMIP6 pretraining, which is now the one lever the paper
 used that this project has not.
 
+#### The 8-seed TPU ensemble: attempted, not delivered
+
+The plan was to train one model per chip on Kaggle's TPU — eight seeds for the wall-clock
+of one — and report the ensemble, since ensembling is the lever already measured here.
+The plumbing works: `kaggle/tpu_probe.py` established that a `v5litepod-8` exposes all
+eight chips to a single process (`xmp.spawn` is unusable on it — the host declares one
+worker address), and a smoke run trained eight full 6.36M models and wrote eight
+checkpoints.
+
+The full run never got past its first batch, three times, always on the host→device
+transfer:
+
+| batch | error | free at failure |
+|---|---|---|
+| 128 | `RESOURCE_EXHAUSTED` allocating 120 MB | 21.4 MB |
+| 64 | `RESOURCE_EXHAUSTED` allocating 64 MB | 37.2 MB |
+| 32 | `RESOURCE_EXHAUSTED` allocating 32 MB | 5.0 MB |
+
+Two hypotheses were tested and both failed. Shrinking the batch recovered only the amount
+the input block itself shrank by, so the batch was never the constraint. And the
+per-device readout — added precisely to settle it — shows all eight chips at
+**0.03 GB used of a 16.91 GB limit**, so the members are correctly spread and are not
+crowding one chip, which is what I had assumed.
+
+That leaves a contradiction I did not resolve: `xm.get_memory_info` reports ~16.9 GB free
+on the device the allocator says has 5 MB. The transfers evidently stage through a pool
+that the device memory info does not describe, and the free figure barely moves with
+batch size. Rather than keep spending an expiring quota on guesses, this is recorded as
+an open engineering problem. It costs the ensemble result, not the reproduction — the
+306.7 above is a GPU number and is unaffected.
+
+One consolation from the last attempt: reverting to the paper's batch 32 and LR 5e-5
+removed every deviation the larger-batch plan had introduced, so whenever this is fixed
+the members will be recipe-faithful rather than a scaled-up variant.
+
 Note also that our best *forecast* — the 5-member ensemble at z500 98 — is far past both
 numbers, but that blends other groups' 0.25° forecasts and is a different achievement
 entirely; the best from-scratch model at coarse resolution is this one at 306.7, and the
