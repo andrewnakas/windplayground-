@@ -67,6 +67,12 @@ BATCH = 32
 LR = 5e-5
 WD = 1e-5
 PLATEAU_FACTOR, PLATEAU_PATIENCE, MAX_DROPS, EARLY_STOP = 0.2, 2, 2, 5
+# Off, on two independent grounds. Measured: clip_grad_norm_ costs +274%
+# (6.17 vs 1.65 s/step) on XLA, because it walks ~120 parameters per member in
+# Python and emits a norm op for each. And the paper does not use it -- Adam,
+# LR 5e-5, batch 32 is the whole recipe, so the clipping was my addition, not
+# theirs. Dropping it is both faster and more faithful.
+CLIP_GRAD = False
 VAL_EVERY = 20 if SMOKE else 2000
 MAX_STEPS = 60 if SMOKE else 10**9
 # Kaggle cuts TPU sessions at 9 h -- stop with room to write eight checkpoints.
@@ -240,7 +246,7 @@ class Member:
     def loss(self, pred, y):
         return (self.latw * (pred - y) ** 2).mean()
 
-    def train_step(self, frames, fut, now, clip=True):
+    def train_step(self, frames, fut, now, clip=CLIP_GRAD):
         """Build the graph; execution waits for the caller's single mark_step."""
         x, y = self.assemble(frames, fut, now)
         loss = self.loss(self.model(x), y)
@@ -351,44 +357,79 @@ def main():
         an unseparated average would be guessing. `xm.wait_device_ops()` forces
         each step to complete so the timings are real rather than enqueue times.
         """
-        def phase(label, n, clip):
+        def phase(label, n, who, batch=BATCH, clip=False, compiled=False):
+            def one_step():
+                idx = np.concatenate([m.rng.integers(lo, hi_t, batch) for m in who])
+                arrs = gather(train, idx)
+                for j, m in enumerate(who):
+                    m.train_step(*slice_for(arrs, slice(j * batch, (j + 1) * batch)),
+                                 clip=clip)
+                return arrs
+
+            body = one_step
+            if compiled:
+                # torch_xla.compile traces once and replays, instead of walking
+                # the whole 19-block graph through Python on every step
+                try:
+                    body = torch_xla.compile(one_step)
+                except Exception as exc:
+                    print(f"windml bench {label} compile_unavailable: "
+                          f"{type(exc).__name__}: {str(exc)[:120]}", flush=True)
+                    return None
+
             times = []
             for k in range(n):
                 t = time.time()
-                idx = np.concatenate([m.rng.integers(lo, hi_t, BATCH) for m in members])
-                arrs = gather(train, idx)
                 t_gather = time.time() - t
-                for j, m in enumerate(members):
-                    m.train_step(*slice_for(arrs, slice(j * BATCH, (j + 1) * BATCH)),
-                                 clip=clip)
+                try:
+                    body()
+                except Exception as exc:
+                    print(f"windml bench {label} FAILED {type(exc).__name__}: "
+                          f"{str(exc)[:300]}", flush=True)
+                    return None
                 xm.mark_step()
                 xm.wait_device_ops()
-                dt = time.time() - t
-                times.append((dt, t_gather))
+                times.append((time.time() - t, t_gather))
                 if k == 0:
-                    print(f"windml bench {label} step1={dt:.1f}s "
+                    print(f"windml bench {label} step1={times[0][0]:.1f}s "
                           f"(compile + execute)", flush=True)
             warm = times[1:] or times
             tot = sum(d for d, _ in warm) / len(warm)
-            gat = sum(g for _, g in warm) / len(warm)
-            print(f"windml bench {label} clip={clip} steady={tot:.3f}s/step "
-                  f"(gather {gat:.3f}s, device {tot-gat:.3f}s) "
-                  f"-> {len(members)*BATCH/tot:.0f} samples/s", flush=True)
+            print(f"windml bench {label} members={len(who)} batch={batch} "
+                  f"clip={clip} compiled={compiled} steady={tot:.3f}s/step "
+                  f"-> {len(who)*batch/tot:.0f} samples/s", flush=True)
             return tot
 
-        with_clip = phase("A", 12, True)
-        no_clip = phase("B", 12, False)
-        print(f"windml bench clip_overhead={with_clip - no_clip:+.3f}s/step "
-              f"({100*(with_clip-no_clip)/max(no_clip,1e-9):+.0f}%)", flush=True)
+        # Does cost scale with member COUNT? If 8 members cost ~8x one member,
+        # the chips are idle and the bottleneck is Python walking the graph --
+        # a fix, not a ceiling. If they cost about the same, they really are
+        # running side by side and 8 chips are doing 8 chips' work.
+        t1 = phase("1member", 10, members[:1])
+        t8 = phase("8members", 10, members)
+        if t1 and t8:
+            print(f"windml bench scaling=8members/1member={t8/t1:.2f}x "
+                  f"(1.0 = perfectly parallel, 8.0 = fully serial)", flush=True)
+
+        t8c = phase("8members_compiled", 10, members, compiled=True)
+        # Tracing cost is per-step and independent of batch size, so if it
+        # dominates, a bigger batch is nearly free throughput. Measured, not
+        # assumed -- and only worth acting on if the recipe can afford it.
+        t8b = phase("8members_batch128", 6, members, batch=128)
+        t8clip = phase("8members_clip", 6, members, clip=True)
+
+        if t8 and t8clip:
+            print(f"windml bench clip_overhead={t8clip - t8:+.3f}s/step "
+                  f"({100*(t8clip-t8)/t8:+.0f}%)", flush=True)
         t = time.time()
         validate()
         print(f"windml bench validate_pass={time.time()-t:.1f}s", flush=True)
-        # extrapolate what a real run would actually get through
-        for label, s in (("with_clip", with_clip), ("no_clip", no_clip)):
-            print(f"windml bench projected_{label}="
-                  f"{7.5*3600/s:.0f} steps in 7.5h "
-                  f"({8*7.5*3600/s*BATCH/1e6:.1f}M samples across 8 members)",
-                  flush=True)
+        for label, s, b in (("8members", t8, BATCH),
+                            ("8members_compiled", t8c, BATCH),
+                            ("8members_batch128", t8b, 128)):
+            if s:
+                print(f"windml bench projected_{label}={7.5*3600/s:.0f} steps "
+                      f"in 7.5h = {7.5*3600/s*b/1000:.0f}k samples per member",
+                      flush=True)
 
     @torch.no_grad()
     def validate():
@@ -429,7 +470,8 @@ def main():
         live = [m for m in members if not m.done]
         idx = np.concatenate([m.rng.integers(lo, hi_t, BATCH) for m in live])
         arrs = gather(train, idx)
-        losses = [m.train_step(*slice_for(arrs, slice(k * BATCH, (k + 1) * BATCH)))
+        losses = [m.train_step(*slice_for(arrs, slice(k * BATCH, (k + 1) * BATCH)),
+                               clip=CLIP_GRAD)
                   for k, m in enumerate(live)]
         xm.mark_step()          # execute all members' graphs together
         step += 1
