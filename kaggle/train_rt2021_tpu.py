@@ -12,12 +12,12 @@ that the eight checkpoints *are* an ensemble, and ensembling is the one lever
 already measured in this repo (`avg5` beat its best member by 5.7-7.3% on wind
 speed with zero fitted parameters).
 
-**This kernel is the EXTENSION, not the reproduction.** It deviates from Rasp &
-Thuerey on three counts, all listed at the constants below: batch 128 instead
-of 32, LR 2e-4 instead of 5e-5 (linear scaling), and gradient clipping on.
-Those are justified by the hardware, not by the paper, so no number from here
-may be quoted as a reproduction of theirs -- that claim belongs solely to the
-GPU run, which follows the recipe exactly.
+**Recipe: the paper's, unmodified.** Batch 32, LR 5e-5, no gradient clipping.
+Larger batches were tried to get more samples into a 7.5 h session and both
+died on HBM (see the constants below), so the only thing separating a member
+here from the GPU reproduction is how many steps it got -- not the recipe. The
+ensemble is therefore an extension in the sense that the paper does not
+ensemble, not in the sense of having been trained differently.
 
 **One process, eight devices -- NOT xmp.spawn.** Kaggle's TPU is a
 `v5litepod-8` (v5e-8) with `TPU_PROCESS_ADDRESSES=local` and a single entry in
@@ -96,20 +96,23 @@ LEAKY = 0.3
 # DELIBERATE DEVIATIONS FROM THE PAPER -- this kernel is the extension, not the
 # reproduction, and the fidelity claim rests entirely on the GPU run.
 #
-# Batch 64 rather than 32, with LR scaled linearly 5e-5 -> 1e-4. At batch 32
-# this hardware buys ~19k steps per member in 7.5 h, which is 20% of what the
-# GPU model gets and would produce eight undertrained members; the step is
-# latency-bound, so a larger batch is nearly free wall-clock.
+# BACK TO THE PAPER'S EXACT VALUES, after two OOM failures showed the larger
+# batch was not buying what it was supposed to:
 #
-# 128 was tried first and died: `RESOURCE_EXHAUSTED: Attempting to allocate
-# 120.00M. That was not possible. There are 21.36M free` on the very first
-# input transfer. It had survived six steps inside the benchmark, which was not
-# the same test -- the benchmark reached batch 128 after other phases had
-# already forced parameters and optimizer state to materialize, whereas the
-# real run hits it cold. 64 halves the activation footprint and still doubles
-# the samples per member over the paper's batch.
-BATCH = 64
-LR = 1e-4
+#   batch 128 -> RESOURCE_EXHAUSTED, 21.36M free on the first input transfer
+#   batch  64 -> RESOURCE_EXHAUSTED, 37.19M free, same place
+#
+# Halving the batch recovered 16 MB, which is just the smaller input block --
+# the device was already full before training began, so the batch was never the
+# problem and a third size would fail the same way. The hbm print below
+# diagnoses the real cause.
+#
+# The upside of reverting: with batch 32, LR 5e-5 and no clipping, this run has
+# NO deviations from Rasp & Thuerey left. Each member is a faithful-recipe
+# model that has simply seen fewer steps than the GPU one, which makes the
+# ensemble easier to report honestly than a batch-128 variant would have been.
+BATCH = 32
+LR = 5e-5
 WD = 1e-5
 PLATEAU_FACTOR, PLATEAU_PATIENCE, MAX_DROPS, EARLY_STOP = 0.2, 2, 2, 5
 # ON here, and the earlier note that it costs +274% was wrong. Two benchmarks
@@ -120,7 +123,7 @@ PLATEAU_FACTOR, PLATEAU_PATIENCE, MAX_DROPS, EARLY_STOP = 0.2, 2, 2, 5
 # The paper still does not use clipping, so the GPU reproduction leaves it off.
 # But at 4x the LR with BatchNorm, a divergence would waste the whole TPU pool,
 # and 8% is cheap insurance on a run that is already labelled an extension.
-CLIP_GRAD = True
+CLIP_GRAD = False
 VAL_EVERY = 20 if SMOKE else 1000
 MAX_STEPS = 60 if SMOKE else 10**9
 # Kaggle cuts TPU sessions at 9 h -- stop with room to write eight checkpoints.
@@ -405,10 +408,26 @@ def main():
     # Materialize parameters and optimizer state NOW rather than letting them
     # land in the same execution as the first batch. XLA is lazy, so without
     # this the first step must allocate weights, Adam moments and a full
-    # activation tree at once, which is where the batch-128 attempt ran out of
-    # HBM.
+    # activation tree at once.
     xm.mark_step()
     xm.wait_device_ops()
+
+    # Report per-device HBM before a single batch is transferred. Two runs died
+    # here with the device essentially full -- 21 MB free at batch 128, 37 MB at
+    # batch 64 -- and halving the batch barely moved the needle, so the batch is
+    # not what is consuming it. The obvious suspect is that the eight members
+    # are not actually spread across the eight chips. This says so outright
+    # instead of costing another run to infer.
+    for d in devices:
+        try:
+            mi = xm.get_memory_info(d)
+            used = mi.get("bytes_used", mi.get("kb_total", 0))
+            limit = mi.get("bytes_limit", 0)
+            print(f"windml hbm {d} used={used/1e9:.2f}GB limit={limit/1e9:.2f}GB",
+                  flush=True)
+        except Exception as exc:                       # API differs across versions
+            print(f"windml hbm {d} unavailable: {type(exc).__name__}", flush=True)
+            break
 
     def gather(stack, idx):
         """One packed block for the whole step: frames t..t-2, then t+72h, then t.
