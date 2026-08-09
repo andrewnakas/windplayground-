@@ -57,6 +57,25 @@ KERNELS: dict[str, dict] = {
         "kernels": [f"{USER}/windml-prep-era5"],
         "note": "RT2021 ResNet, direct 72h, the 314 fidelity gate",
     },
+    # TPU runs one WHOLE model per core -- eight seeds, not one data-parallel
+    # model (see the kernel docstring). The smoke variant needs no data at all,
+    # so it can prove the 8-core plumbing before any quota goes on a real run.
+    "tpu_smoke": {
+        "title": "windml tpu smoke",
+        "source": "train_rt2021_tpu.py",
+        "tpu": True,
+        "internet": True,
+        "prelude": 'import os; os.environ["WINDML_SMOKE"] = "1"\n',
+        "note": "synthetic data, ~5 min: proves 8 cores + fwd/bwd + per-core save",
+    },
+    "train_rt2021_tpu": {
+        "title": "windml train rt2021 tpu ensemble",
+        "source": "train_rt2021_tpu.py",
+        "tpu": True,
+        "internet": True,
+        "kernels": [f"{USER}/windml-prep-era5"],
+        "note": "8 independent seeds, one per core -> the ensemble directly",
+    },
 }
 
 
@@ -95,7 +114,9 @@ def stage(name: str) -> pathlib.Path:
 
     out = STAGE / name
     out.mkdir(parents=True, exist_ok=True)
-    (out / spec["source"]).write_text(src.read_text())
+    # Kaggle has no way to set an environment variable on a kernel, so a source
+    # shared by two kernels is configured by prepending a line to it.
+    (out / spec["source"]).write_text(spec.get("prelude", "") + src.read_text())
 
     meta = {
         "id": slug(name),

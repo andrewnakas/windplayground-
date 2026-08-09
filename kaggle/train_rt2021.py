@@ -215,10 +215,24 @@ def main():
     meta = json.loads((IN / "meta.json").read_text())
     stats = json.loads((IN / "stats.json").read_text())
     names = meta["channels"]
+    if not stats.get("stored_normalized"):
+        raise SystemExit(
+            "RESULT FAIL this input stores physical units in float16, which "
+            "overflows for z50/z250 and yields inf. Re-run the prep kernel.")
+
+    # The arrays arrive as (physical - store_mean)/store_std. The network wants
+    # (physical - mean)/std against the exact train statistics, and composing
+    # the two affines is one multiply-add rather than a round trip through
+    # physical units -- which is also the only form that stays float16-safe.
+    sm = np.asarray(stats["store_mean"], np.float32)[None, :, None, None]
+    ss = np.asarray(stats["store_std"], np.float32)[None, :, None, None]
     mean = np.asarray(stats["mean"], np.float32)[None, :, None, None]
     std = np.asarray(stats["std"], np.float32)[None, :, None, None]
+    re_a = ss / std
+    re_b = (sm - mean) / std
     tgt = [names.index(t) for t in TARGETS]
-    print(f"windml channels={len(names)} targets={TARGETS}->{tgt}", flush=True)
+    print(f"windml channels={len(names)} targets={TARGETS}->{tgt} "
+          f"stored_normalized=True", flush=True)
 
     train = load_years(*TRAIN)
     val = load_years(*VAL)
@@ -251,8 +265,9 @@ def main():
          {"params": [p for p in model.parameters() if id(p) not in kern], "weight_decay": 0.0}],
         lr=LR)
 
-    mean_t = torch.from_numpy(mean).to(dev)
-    std_t = torch.from_numpy(std).to(dev)
+    re_a_t = torch.from_numpy(re_a).to(dev)
+    re_b_t = torch.from_numpy(re_b).to(dev)
+    store_std_t = torch.from_numpy(ss[:, tgt]).to(dev)
     latw = np.cos(np.deg2rad(np.linspace(-87.1875, 87.1875, n_lat)))
     latw = torch.from_numpy((latw / latw.mean()).astype(np.float32)).to(dev)[None, None, :, None]
 
@@ -263,15 +278,19 @@ def main():
         d = arr[i + DIRECT_STEPS][:, tgt].astype(np.float32) - arr[i][:, tgt].astype(np.float32)
         return torch.from_numpy(d.std(axis=(0, 2, 3)).astype(np.float32)).to(dev)[None, :, None, None]
 
+    # in STORED units; multiplying by store_std recovers the physical spread,
+    # which is the number worth eyeballing (z500 should be ~1030 m2/s2)
     dstd = direct_std(train)
-    print(f"windml direct_std={dstd.flatten().tolist()}", flush=True)
+    dstd_phys = (dstd * store_std_t).flatten().tolist()
+    print(f"windml direct_std_stored={[round(v, 4) for v in dstd.flatten().tolist()]} "
+          f"direct_std_physical={[round(v, 2) for v in dstd_phys]}", flush=True)
 
     def batch(arr, idx):
         """Assemble (x, y): 3 normalized frames + 3 constants -> scaled residual."""
         xs = []
         for k in range(N_FRAMES):
             f = torch.from_numpy(arr[idx - k].astype(np.float32)).to(dev)
-            xs.append((f - mean_t) / std_t)
+            xs.append(re_a_t * f + re_b_t)
         x = torch.cat(xs + [const.expand(len(idx), -1, -1, -1)], 1)
         fut = torch.from_numpy(arr[idx + DIRECT_STEPS][:, tgt].astype(np.float32)).to(dev)
         now = torch.from_numpy(arr[idx][:, tgt].astype(np.float32)).to(dev)
@@ -312,6 +331,15 @@ def main():
 
         if step % VAL_EVERY == 0:
             v = validate()
+            # Bail on the FIRST non-finite validation. The previous run spent
+            # 136 GPU-minutes and 24,000 steps demonstrating that NaN stays
+            # NaN; the cause was inf in the inputs, and no amount of further
+            # training was going to change it.
+            if not np.isfinite(v) or not np.isfinite(float(loss)):
+                raise SystemExit(
+                    f"RESULT FAIL non-finite at step {step}: "
+                    f"train={float(loss)} val={v}. Inputs or targets contain "
+                    f"inf/nan -- check the prep kernel, not the recipe.")
             el = time.time() - t0
             log.append({"step": step, "lr": lr, "train": float(loss), "val": v, "s": el})
             print(f"windml step={step} lr={lr:.2e} train={float(loss):.4f} "
@@ -321,6 +349,9 @@ def main():
                 torch.save({"state_dict": model.state_dict(), "step": step,
                             "val": v, "channels": names, "targets": TARGETS,
                             "direct_std": dstd.cpu().numpy().tolist(),
+                            "direct_std_physical": dstd_phys,
+                            "store_mean": sm[:, tgt].ravel().tolist(),
+                            "store_std": ss[:, tgt].ravel().tolist(),
                             "n_frames": N_FRAMES, "direct_lead_h": 72},
                            OUT / "rt2021_72h_best.pt")
             else:
@@ -340,7 +371,12 @@ def main():
             print(f"windml time_budget_reached step={step}")
             break
 
+    ckpt = OUT / "rt2021_72h_best.pt"
     print(f"windml best_val={best:.4f} steps={step}")
+    # A success line has to be conditional on having produced something. The
+    # last run printed RESULT OK over best_val=inf and no checkpoint at all.
+    if not np.isfinite(best) or not ckpt.exists():
+        raise SystemExit(f"RESULT FAIL best_val={best} checkpoint={ckpt.exists()}")
     print("RESULT OK")
 
 
