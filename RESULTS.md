@@ -26,6 +26,25 @@ ERA5-only figure (with a 5-day number taken from a third, 'continuous' model).
 The blend rows *are* like-for-like -- they beat those models on their own
 published forecasts, at the resolution everything here is scored on.
 
+
+## The Rasp & Thuerey 2021 recreation (scored on 2017-2018)
+
+Separate from every table below, which is scored on 2020. This model
+is scored on the paper's own test years so the comparison is
+like-for-like: same 64x32 grid, same latitude-weighted RMSE.
+
+### 72 h lead (single model, 2906 inits)
+
+| variable | ours | R&T ERA5-only | vs | R&T CMIP6-pretrained |
+|---|---|---|---|---|
+| z500 | **306.67** | 314.0 | -2.3% | 268.0 |
+| t850 | **1.53** | 1.79 | -14.3% | 1.65 |
+| t2m | **1.21** | 1.53 | -21.1% | 1.42 |
+
+Their ERA5-only row is the comparable one -- this model does no
+pretraining. The pretrained column is shown because it is the number
+usually quoted, and it costs ~150 years of CMIP6 data to reach.
+
 ## u10 — RMSE (m/s) at 24/72/120 h
 
 | model                      |      24 |      72 |     120 |

@@ -4,6 +4,7 @@ Usage: python scripts/make_report.py
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import matplotlib
@@ -47,6 +48,45 @@ GROUPS = {
         ["graphcast_corrected", "graphcast_affine",
          "blend_graphcast+pangu+hres", "avg4"],
 }
+
+
+def rt2021_section() -> list[str]:
+    """The faithful RT2021 recreation, scored on the paper's own 2017-2018.
+
+    Deliberately NOT folded into the tables below. Those are 2020; this is
+    2017-2018, because that is the only way its numbers mean anything next to
+    the paper's. Putting them in one table would invite exactly the comparison
+    that is invalid.
+    """
+    path = RESULTS / "rt2021_72h_scores.json"
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text())
+    out = ["", "## The Rasp & Thuerey 2021 recreation (scored on 2017-2018)", "",
+           "Separate from every table below, which is scored on 2020. This model",
+           "is scored on the paper's own test years so the comparison is",
+           "like-for-like: same 64x32 grid, same latitude-weighted RMSE.", ""]
+    for entry in data.get("by_lead", []):
+        lead, r = entry["lead_h"], entry["rmse"]
+        ref = entry.get("paper") or {}
+        era, pre = ref.get("era5_only", {}), ref.get("pretrained", {})
+        n = entry.get("n_members", 1)
+        label = f"ensemble of {n}" if n > 1 else "single model"
+        out += [f"### {lead} h lead ({label}, {entry.get('n_inits')} inits)", "",
+                "| variable | ours | R&T ERA5-only | vs | R&T CMIP6-pretrained |",
+                "|---|---|---|---|---|"]
+        for v in ("z500", "t850", "t2m"):
+            if v not in r:
+                continue
+            e, p = era.get(v), pre.get(v)
+            delta = f"{100 * (r[v] - e) / e:+.1f}%" if e else "--"
+            out.append(f"| {v} | **{r[v]:.2f}** | {e if e else '--'} | {delta} "
+                       f"| {p if p else '--'} |")
+        out.append("")
+    out += ["Their ERA5-only row is the comparable one -- this model does no",
+            "pretraining. The pretrained column is shown because it is the number",
+            "usually quoted, and it costs ~150 years of CMIP6 data to reach.", ""]
+    return out
 
 
 def load_all(pattern: str = "*_test.csv") -> pd.DataFrame:
@@ -192,7 +232,7 @@ def main() -> None:
         "The blend rows *are* like-for-like -- they beat those models on their own",
         "published forecasts, at the resolution everything here is scored on.",
         "",
-    ]
+    ] + rt2021_section()
     for var in HEADLINE_VARS:
         tab = rmse_table(df, var)
         if tab.empty:
