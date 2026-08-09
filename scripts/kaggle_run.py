@@ -98,6 +98,14 @@ KERNELS: dict[str, dict] = {
         "kernels": ["prep_era5", "train_rt2021_120h"],
         "note": "the 5-day model scored @120h vs their 561",
     },
+    "tpu_memdiag": {
+        "title": "windml tpu memdiag",
+        "source": "tpu_memdiag.py",
+        "tpu": True,
+        "internet": True,
+        "kernels": ["prep_era5"],
+        "note": "2x2 synthetic/real x 1/8 devices -- why the ensemble OOMs",
+    },
     "tpu_probe": {
         "title": "windml tpu probe",
         "source": "tpu_probe.py",
