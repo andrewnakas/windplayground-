@@ -60,6 +60,16 @@ KERNELS: dict[str, dict] = {
     # TPU runs one WHOLE model per core -- eight seeds, not one data-parallel
     # model (see the kernel docstring). The smoke variant needs no data at all,
     # so it can prove the 8-core plumbing before any quota goes on a real run.
+    "eval_rt2021": {
+        "title": "windml eval rt2021",
+        "source": "eval_rt2021.py",
+        "gpu": True,
+        "internet": True,
+        # both the arrays and the weights live as kernel outputs, so nothing
+        # has to be uploaded or published as a dataset
+        "kernels": [f"{USER}/windml-prep-era5", f"{USER}/windml-train-rt2021"],
+        "note": "z500/t850/t2m RMSE @72h on 2017-2018 -- the number vs 314",
+    },
     "tpu_probe": {
         "title": "windml tpu probe",
         "source": "tpu_probe.py",
