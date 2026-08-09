@@ -34,6 +34,30 @@ lets them run concurrently rather than one at a time.
 TPU also sidesteps the Pascal problem the GPU kernel works around -- no CUDA
 arch to match, so no cu118 pin.
 
+**Measured reality: this model is latency-bound on a v5e-8, not throughput-
+bound.** Four candidate explanations for a fixed ~1.6 s/step were tested and
+three were wrong:
+
+    Python tracing        refuted -- 8 members cost 0.83x of one, and
+                          torch_xla.compile changed nothing (1.681 vs 1.669)
+    benchmark's own sync  refuted -- async differs by 0.05 s
+    serial transfers      real but minor -- packing five .to(dev) calls into
+                          one bought 1.634 -> 1.405 s/step (+14%)
+    per-op latency        what is left, and it fits everything
+
+The tell is batch size: 32 -> 128 costs only +20% wall clock for 3.4x the
+samples. A 6.36M model on a 64x32 grid issues 39 sequential convolutions whose
+individual kernels are far too small to fill a chip, so the step is dominated
+by op dispatch, not arithmetic -- roughly 0.08% of the v5e-8's peak FLOPs. More
+chips do not help that; they are already busy in parallel across members. This
+is a property of the model's shape, not of the port.
+
+Practical consequence at batch 32: ~19k steps per member in 7.5 h, against
+~79k steps for a single model on the P100 in the same time. Eight members at a
+quarter of the training each. Whether that trade is worth taking depends on
+where a single faithful model actually converges, which is what the GPU gate
+run measures -- so that decision waits for it rather than being guessed here.
+
 Modes (SMOKE=1 prepended by scripts/kaggle_run.py, or the default full run):
     smoke -- synthetic data, a few hundred steps, proves the 8-chip plumbing
     full  -- reads the prep kernel's output, one direct-72h model per seed
