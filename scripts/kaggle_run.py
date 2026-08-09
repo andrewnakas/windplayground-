@@ -55,7 +55,7 @@ KERNELS: dict[str, dict] = {
         # they do not fit in this container anyway (pulling them once took the
         # disk to 100%). An earlier version pointed at a windml-era5-rt2021
         # dataset that was never created.
-        "kernels": [f"{USER}/windml-prep-era5"],
+        "kernels": ["prep_era5"],
         "note": "RT2021 ResNet, direct 72h, the 314 fidelity gate",
     },
     # TPU runs one WHOLE model per core -- eight seeds, not one data-parallel
@@ -69,7 +69,7 @@ KERNELS: dict[str, dict] = {
         "gpu": True,
         "internet": True,
         "prelude": 'import os; os.environ["WINDML_DIRECT_STEPS"] = "20"\n',
-        "kernels": [f"{USER}/windml-prep-era5"],
+        "kernels": ["prep_era5"],
         "note": "RT2021 direct 5-day model, their ERA5-only z500 is 561",
     },
     "eval_rt2021": {
@@ -79,7 +79,7 @@ KERNELS: dict[str, dict] = {
         "internet": True,
         # both the arrays and the weights live as kernel outputs, so nothing
         # has to be uploaded or published as a dataset
-        "kernels": [f"{USER}/windml-prep-era5", f"{USER}/windml-train-rt2021"],
+        "kernels": ["prep_era5", "train_rt2021"],
         "note": "z500/t850/t2m RMSE @72h on 2017-2018 -- the number vs 314",
     },
     "eval_rt2021_tpu": {
@@ -87,7 +87,7 @@ KERNELS: dict[str, dict] = {
         "source": "eval_rt2021.py",
         "gpu": True,
         "internet": True,
-        "kernels": [f"{USER}/windml-prep-era5", f"{USER}/windml-train-rt2021-tpu"],
+        "kernels": ["prep_era5", "train_rt2021_tpu"],
         "note": "the 8-seed ensemble and each member, scored @72h",
     },
     "eval_rt2021_120h": {
@@ -95,7 +95,7 @@ KERNELS: dict[str, dict] = {
         "source": "eval_rt2021.py",
         "gpu": True,
         "internet": True,
-        "kernels": [f"{USER}/windml-prep-era5", f"{USER}/windml-train-rt2021-120h"],
+        "kernels": ["prep_era5", "train_rt2021_120h"],
         "note": "the 5-day model scored @120h vs their 561",
     },
     "tpu_probe": {
@@ -118,7 +118,7 @@ KERNELS: dict[str, dict] = {
         "source": "train_rt2021_tpu.py",
         "tpu": True,
         "internet": True,
-        "kernels": [f"{USER}/windml-prep-era5"],
+        "kernels": ["prep_era5"],
         "note": "8 independent seeds, one per core -> the ensemble directly",
     },
 }
@@ -177,7 +177,24 @@ def splice_prelude(source: str, prelude: str) -> str:
 
 
 def slug(name: str) -> str:
-    return f"{USER}/windml-{name.replace('_', '-')}"
+    """The slug Kaggle will actually use: derived from the TITLE, not the key.
+
+    Learned the hard way. `train_rt2021_tpu` was titled "windml train rt2021 tpu
+    ensemble", and Kaggle created `windml-train-rt2021-tpu-ensemble` while every
+    status query asked for `windml-train-rt2021-tpu` and got a permission error
+    that reads like a missing kernel. Kaggle slugifies the title and warns
+    ("your kernel title does not resolve to the specified id") but proceeds, so
+    the title is the source of truth and this follows it.
+    """
+    return f"{USER}/{_slugify(KERNELS[name]['title'])}"
+
+
+def _slugify(title: str) -> str:
+    keep = [c.lower() if c.isalnum() else "-" for c in title]
+    out = "".join(keep)
+    while "--" in out:
+        out = out.replace("--", "-")
+    return out.strip("-")
 
 
 def stage(name: str) -> pathlib.Path:
@@ -212,7 +229,9 @@ def stage(name: str) -> pathlib.Path:
         "enable_internet": bool(spec.get("internet", True)),
         "dataset_sources": spec.get("datasets", []),
         "competition_sources": [],
-        "kernel_sources": spec.get("kernels", []),
+        # by registry KEY, resolved through slug() -- hardcoding the strings is
+        # what let a mount point at a kernel that does not exist under that name
+        "kernel_sources": [slug(k) for k in spec.get("kernels", [])],
     }
     (out / "kernel-metadata.json").write_text(json.dumps(meta, indent=2))
     return out

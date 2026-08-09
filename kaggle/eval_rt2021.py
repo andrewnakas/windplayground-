@@ -28,10 +28,53 @@ difference.
 
 import json
 import pathlib
+import subprocess
+import sys
 
 import numpy as np
-import torch
-from torch import nn
+
+
+def _ensure_torch_supports_this_gpu() -> None:
+    """Install a torch with kernels for this GPU, if the preinstalled one lacks them.
+
+    Copied from train_rt2021.py, which is the point: the first run of this
+    kernel died with `CUDA error: no kernel image is available for execution on
+    the device` because the gate existed in the training kernel and had simply
+    not been applied here. Kaggle hands out a Tesla P100 (Pascal, sm_60) and
+    current torch wheels dropped Pascal; cu118 is the last line that ships it.
+
+    The probe runs in a SUBPROCESS so the main process imports torch fresh
+    after any reinstall.
+    """
+    probe = ("import torch;"
+             "cap=torch.cuda.get_device_capability(0);"
+             "a='sm_%d%d'%cap;"
+             "print(a, a in torch.cuda.get_arch_list(), torch.__version__)")
+
+    def check():
+        r = subprocess.run([sys.executable, "-c", probe],
+                           capture_output=True, text=True)
+        return ("True" in r.stdout), (r.stdout.strip() or r.stderr.strip()[:140])
+
+    ok, out = check()
+    print(f"windml gpu_arch_probe={out}", flush=True)
+    if ok:
+        return
+    print("windml installing torch cu118 (last line with Pascal kernels) ...",
+          flush=True)
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q",
+                    "--index-url", "https://download.pytorch.org/whl/cu118",
+                    "torch==2.4.1+cu118"], check=True)
+    ok, out = check()
+    print(f"windml gpu_arch_reprobe={out}", flush=True)
+    if not ok:
+        raise SystemExit(f"RESULT FAIL no torch build with kernels for this GPU ({out})")
+
+
+_ensure_torch_supports_this_gpu()
+
+import torch  # noqa: E402
+from torch import nn  # noqa: E402
 
 OUT = pathlib.Path("/kaggle/working")
 TEST = (2017, 2018)
