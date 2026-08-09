@@ -182,10 +182,23 @@ def wait(name: str, timeout_min: int = 540, poll_s: int = 60) -> str:
     return "timeout"
 
 
-def output(name: str, dest: str) -> None:
+# The prep kernel's output is ~9 GB of .npy and this container has ~3.5 GB
+# free. Pulling all of it has now filled the disk to 100% twice -- once badly
+# enough to threaten checkpointing and git. The arrays exist so a Kaggle
+# TRAINING kernel can mount them; only logs, stats and checkpoints ever need to
+# travel. So the fetch is filtered by default and the filter is opt-out.
+SMALL_FILES = r"\.(json|csv|log|txt|md|pt|png)$"
+
+
+def output(name: str, dest: str, pattern: str = SMALL_FILES) -> None:
     p = pathlib.Path(dest) / name
     p.mkdir(parents=True, exist_ok=True)
-    r = _run(["kaggle", "kernels", "output", slug(name), "-p", str(p)], check=False)
+    cmd = ["kaggle", "kernels", "output", slug(name), "-p", str(p)]
+    if pattern:
+        cmd += ["--file-pattern", pattern]
+    else:
+        print("windml WARNING: unfiltered fetch; kernel outputs can be many GB")
+    r = _run(cmd, check=False)
     print((r.stdout + r.stderr).strip())
     files = sorted(f for f in p.rglob("*") if f.is_file())
     total = sum(f.stat().st_size for f in files)
@@ -198,6 +211,9 @@ def main() -> None:
     ap.add_argument("name", nargs="?", choices=sorted(KERNELS) + [None])
     ap.add_argument("--dest", default="artifacts/kaggle")
     ap.add_argument("--timeout-min", type=int, default=540)
+    ap.add_argument("--file-pattern", default=SMALL_FILES,
+                    help="regex of filenames to fetch; '' fetches everything "
+                         "(which for prep_era5 is ~9 GB and will fill the disk)")
     a = ap.parse_args()
 
     if a.action == "list":
@@ -215,7 +231,7 @@ def main() -> None:
     elif a.action == "wait":
         print(f"windml final_state={wait(a.name, a.timeout_min)}")
     else:
-        output(a.name, a.dest)
+        output(a.name, a.dest, a.file_pattern)
 
 
 if __name__ == "__main__":
