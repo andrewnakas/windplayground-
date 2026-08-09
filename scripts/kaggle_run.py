@@ -60,6 +60,13 @@ KERNELS: dict[str, dict] = {
     # TPU runs one WHOLE model per core -- eight seeds, not one data-parallel
     # model (see the kernel docstring). The smoke variant needs no data at all,
     # so it can prove the 8-core plumbing before any quota goes on a real run.
+    "tpu_probe": {
+        "title": "windml tpu probe",
+        "source": "tpu_probe.py",
+        "tpu": True,
+        "internet": True,
+        "note": "what does a Kaggle TPU look like to torch_xla? env + 3 init paths",
+    },
     "tpu_smoke": {
         "title": "windml tpu smoke",
         "source": "train_rt2021_tpu.py",

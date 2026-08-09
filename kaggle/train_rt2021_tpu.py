@@ -1,27 +1,41 @@
-"""RT2021 on TPU: eight independent seeds, one per core. Kaggle TPU kernel.
+"""RT2021 on TPU: eight independent seeds, one per chip. Kaggle TPU kernel.
 
-**This is not a data-parallel port, and that is deliberate.** A 6.36M-parameter
-convnet on a 64x32 grid does not need eight chips: the bottleneck is data
-loading, large-batch training would need the paper's LR retuned, and RT2021's
-BatchNorm makes per-core batch statistics diverge from its batch-32 recipe. All
-three are ways for a "faster" run to stop being a reproduction.
+**Not a data-parallel port, and that is deliberate.** A 6.36M-parameter convnet
+on a 64x32 grid does not need eight chips: the bottleneck is data loading,
+large-batch training would need the paper's LR retuned, and RT2021's BatchNorm
+makes per-core batch statistics diverge from its batch-32 recipe. All three are
+ways for a "faster" run to stop being a reproduction.
 
-Running one *whole model* per core avoids every one of them. Each core keeps
-batch 32, LR 5e-5 and its own BatchNorm exactly as published; the only thing
-that differs is the seed. Nothing is all-reduced -- note `opt.step()` below
-rather than `xm.optimizer_step`, which would average gradients across cores and
-quietly turn this back into one data-parallel model.
+Running one *whole model* per chip avoids every one of them. Each member keeps
+batch 32, LR 5e-5 and its own BatchNorm exactly as published; only the seed and
+the data order differ. No gradient is ever shared. What it buys is that the
+eight checkpoints *are* an ensemble, and ensembling is the one lever already
+measured in this repo (`avg5` beat its best member by 5.7-7.3% on wind speed
+with zero fitted parameters).
 
-What it buys: the eight checkpoints *are* an ensemble, and ensembling is the
-one lever already measured in this repo (`avg5` beat its best member by
-5.7-7.3% on wind speed with zero fitted parameters). Eight seeds for the
-wall-clock of one is the whole point.
+**One process, eight devices -- NOT xmp.spawn.** Kaggle's TPU is a
+`v5litepod-8` (v5e-8) with `TPU_PROCESS_ADDRESSES=local` and a single entry in
+`TPU_WORKER_HOSTNAMES`, so the multiprocess path dies in libtpu before any user
+code runs:
 
-TPU also sidesteps the Pascal problem the GPU kernel has to work around: there
-is no CUDA arch to match, so no cu118 pin.
+    TPU initialization failed: Invalid --<id>_slice_builder_worker_addresses
+    specified. Expected 8 worker addresses, got 1.
 
-Modes (SMOKE=1 in the kernel source, or the default full run):
-    smoke -- synthetic data, ~200 steps, proves 8 cores + fwd/bwd + save
+kaggle/tpu_probe.py established that all eight chips are addressable from a
+single process (`xr.global_runtime_device_count() == 8`) and that eight
+independent models step happily side by side there. Since nothing is
+all-reduced, spawn bought nothing here anyway -- it was only ever a way to get
+eight devices, and this gets them without the multiprocessing.
+
+XLA is lazy, so the eight members are enqueued and only then executed: one
+`xm.mark_step()` per training step, after all eight have been built, is what
+lets them run concurrently rather than one at a time.
+
+TPU also sidesteps the Pascal problem the GPU kernel works around -- no CUDA
+arch to match, so no cu118 pin.
+
+Modes (SMOKE=1 prepended by scripts/kaggle_run.py, or the default full run):
+    smoke -- synthetic data, a few hundred steps, proves the 8-chip plumbing
     full  -- reads the prep kernel's output, one direct-72h model per seed
 """
 # No `from __future__ import annotations` here on purpose: scripts/kaggle_run.py
@@ -37,8 +51,8 @@ import numpy as np
 import torch
 from torch import nn
 
+import torch_xla
 import torch_xla.core.xla_model as xm
-import torch_xla.distributed.xla_multiprocessing as xmp
 
 SMOKE = os.environ.get("WINDML_SMOKE", "0") == "1"
 
@@ -53,19 +67,10 @@ BATCH = 32
 LR = 5e-5
 WD = 1e-5
 PLATEAU_FACTOR, PLATEAU_PATIENCE, MAX_DROPS, EARLY_STOP = 0.2, 2, 2, 5
-VAL_EVERY = 200 if SMOKE else 2000
-MAX_STEPS = 400 if SMOKE else 10**9
+VAL_EVERY = 20 if SMOKE else 2000
+MAX_STEPS = 60 if SMOKE else 10**9
 # Kaggle cuts TPU sessions at 9 h -- stop with room to write eight checkpoints.
-TIME_BUDGET_S = 300 if SMOKE else 7.5 * 3600
-
-
-def device():
-    """torch_xla renamed this in 2.x; support both rather than pin a version."""
-    try:
-        import torch_xla
-        return torch_xla.device()
-    except (ImportError, AttributeError):
-        return xm.xla_device()
+TIME_BUDGET_S = 420 if SMOKE else 7.5 * 3600
 
 
 # ---------------------------------------------------------------- architecture
@@ -132,30 +137,27 @@ class WeatherResNetRT(nn.Module):
 
 
 class YearStack:
-    """Per-year .npy files as one logical array, memory-mapped.
+    """Per-year .npy files as one logical array, indexable across boundaries."""
 
-    The GPU kernel copies the 37 train years into one 8.4 GB in-RAM block. Eight
-    processes doing that would want ~67 GB. Memory-mapping instead means the
-    eight cores share a single copy through the OS page cache, and indexing
-    still crosses year boundaries transparently.
-    """
-
-    def __init__(self, root: pathlib.Path, lo: int, hi: int):
-        self.parts = [np.load(root / f"era5_rt2021_{y}.npy", mmap_mode="r")
-                      for y in range(lo, hi + 1)]
-        lens = [p.shape[0] for p in self.parts]
-        self.offsets = np.cumsum([0] + lens)
+    def __init__(self, root, lo, hi, eager=True):
+        paths = [root / f"era5_rt2021_{y}.npy" for y in range(lo, hi + 1)]
+        self.parts = [np.load(p, mmap_mode=None if eager else "r") for p in paths]
+        self.offsets = np.cumsum([0] + [p.shape[0] for p in self.parts])
         self.shape = (int(self.offsets[-1]), *self.parts[0].shape[1:])
 
-    def take(self, idx: np.ndarray) -> np.ndarray:
-        """Gather arbitrary global time indices into one contiguous float32 batch."""
+    def take(self, idx):
+        """Gather arbitrary global time indices into one contiguous float32 batch.
+
+        One vectorized gather for all eight members' indices at once: the eight
+        models share a process, so eight separate 32-sample gathers would pay
+        numpy's per-call overhead eight times for the same bytes.
+        """
         idx = np.asarray(idx)
         out = np.empty((len(idx), *self.shape[1:]), dtype=np.float32)
         part_of = np.searchsorted(self.offsets, idx, side="right") - 1
         for p in np.unique(part_of):
             sel = part_of == p
-            local = idx[sel] - self.offsets[p]
-            out[sel] = self.parts[p][local].astype(np.float32)
+            out[sel] = self.parts[p][idx[sel] - self.offsets[p]].astype(np.float32)
         return out
 
 
@@ -164,8 +166,8 @@ class SyntheticStack:
 
     def __init__(self, n_t=600, n_c=38, h=32, w=64, seed=0):
         self.shape = (n_t, n_c, h, w)
-        self._rng = np.random.default_rng(seed)
-        self._buf = self._rng.normal(0, 1, (n_t, n_c, h, w)).astype(np.float32)
+        self._buf = np.random.default_rng(seed).normal(
+            0, 1, (n_t, n_c, h, w)).astype(np.float32)
 
     def take(self, idx):
         return self._buf[np.asarray(idx)]
@@ -191,7 +193,7 @@ def latitude_field(n_lat, n_lon):
                            (n_lat, n_lon)).astype(np.float32)
 
 
-def find_input() -> pathlib.Path:
+def find_input():
     root = pathlib.Path("/kaggle/input")
     hits = sorted(root.glob("**/meta.json"))
     if hits:
@@ -201,25 +203,75 @@ def find_input() -> pathlib.Path:
                      + ", ".join(listing))
 
 
-# ------------------------------------------------------------------- per core
+# -------------------------------------------------------------------- members
 
 
-def run(rank: int) -> None:
-    dev = device()
-    seed = 1000 + rank
-    torch.manual_seed(seed)
-    rng = np.random.default_rng(seed)
+class Member:
+    """One independent model, pinned to one TPU chip."""
+
+    def __init__(self, dev, rank, n_in, n_out, re_a, re_b, const, latw, dstd):
+        self.dev, self.rank = dev, rank
+        self.seed = 1000 + rank
+        torch.manual_seed(self.seed)                 # weight init
+        self.rng = np.random.default_rng(self.seed)  # data order
+        self.model = WeatherResNetRT(cin=n_in, cout=n_out).to(dev)
+        kern = {id(p) for p in self.model.conv_kernels()}
+        params = list(self.model.parameters())
+        self.opt = torch.optim.Adam(
+            [{"params": [p for p in params if id(p) in kern], "weight_decay": WD},
+             {"params": [p for p in params if id(p) not in kern], "weight_decay": 0.0}],
+            lr=LR)
+        self.re_a = torch.from_numpy(re_a).to(dev)
+        self.re_b = torch.from_numpy(re_b).to(dev)
+        self.const = const.to(dev)
+        self.latw = torch.from_numpy(latw).to(dev)[None, None, :, None]
+        self.dstd = torch.from_numpy(dstd).to(dev)[None, :, None, None]
+        self.lr, self.best, self.stalled, self.drops = LR, float("inf"), 0, 0
+        self.log, self.done = [], False
+
+    def assemble(self, frames, fut, now):
+        """Host float32 -> device tensors -> (117-channel input, scaled residual)."""
+        xs = [self.re_a * torch.from_numpy(f).to(self.dev) + self.re_b for f in frames]
+        x = torch.cat(xs + [self.const.expand(len(fut), -1, -1, -1)], 1)
+        y = (torch.from_numpy(fut).to(self.dev)
+             - torch.from_numpy(now).to(self.dev)) / self.dstd
+        return x, y
+
+    def loss(self, pred, y):
+        return (self.latw * (pred - y) ** 2).mean()
+
+    def train_step(self, frames, fut, now):
+        """Build the graph; execution waits for the caller's single mark_step."""
+        x, y = self.assemble(frames, fut, now)
+        loss = self.loss(self.model(x), y)
+        self.opt.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+        # opt.step(), NOT xm.optimizer_step(): these are independent models, and
+        # all-reducing here would quietly collapse the ensemble into one.
+        self.opt.step()
+        return loss
+
+
+# ----------------------------------------------------------------------- main
+
+
+def main():
+    OUT.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
-
-    def say(msg: str) -> None:
-        print(f"windml core={rank} {msg}", flush=True)
+    devices = xm.get_xla_supported_devices()
+    print(f"windml mode={'smoke' if SMOKE else 'full'} torch_xla="
+          f"{torch_xla.__version__} devices={len(devices)} {devices}", flush=True)
+    if len(devices) < 2:
+        raise SystemExit(f"RESULT FAIL only {len(devices)} XLA device(s); the "
+                         f"point of this kernel is one model per chip")
 
     if SMOKE:
         names = channel_order()
-        train, val = SyntheticStack(seed=seed), SyntheticStack(n_t=200, seed=seed + 1)
-        re_a = np.ones((1, 38, 1, 1), np.float32)
-        re_b = np.zeros((1, 38, 1, 1), np.float32)
-        store_std_tgt = np.ones(3, np.float32)
+        train, val = SyntheticStack(seed=7), SyntheticStack(n_t=200, seed=8)
+        re_a = np.ones((1, len(names), 1, 1), np.float32)
+        re_b = np.zeros((1, len(names), 1, 1), np.float32)
+        store_std_tgt = np.ones(len(TARGETS), np.float32)
     else:
         src = find_input()
         meta = json.loads((src / "meta.json").read_text())
@@ -233,158 +285,147 @@ def run(rank: int) -> None:
         mean = np.asarray(stats["mean"], np.float32)[None, :, None, None]
         std = np.asarray(stats["std"], np.float32)[None, :, None, None]
         # arrays arrive as (physical - store_mean)/store_std; compose that with
-        # the exact train statistics instead of round-tripping through physical
+        # the exact train statistics rather than round-tripping through physical
         re_a, re_b = ss / std, (sm - mean) / std
         store_std_tgt = ss[0, [names.index(t) for t in TARGETS], 0, 0]
-        train = YearStack(src, *TRAIN)
-        val = YearStack(src, *VAL)
+        train, val = YearStack(src, *TRAIN), YearStack(src, *VAL)
 
     tgt = [names.index(t) for t in TARGETS]
     n_lat, n_lon = train.shape[2], train.shape[3]
-    say(f"train={train.shape} val={val.shape} seed={seed} dev={dev}")
+    print(f"windml train={train.shape} val={val.shape} "
+          f"load={time.time()-t0:.0f}s", flush=True)
 
     # The paper's three constants. Land-sea mask and orography are not in the
     # prep output, so the time mean of 925 hPa geopotential stands in for
     # terrain (it is depressed over high ground) and a threshold on it for the
-    # mask. Crude, but they are constants the network learns around, and
-    # keeping the count at 3 is what holds the input to the paper's 117.
+    # mask. Crude, but they are constants the network learns around, and keeping
+    # the count at 3 is what holds the input to the paper's 117.
     probe = train.take(np.arange(0, train.shape[0], max(train.shape[0] // 60, 1)))
     zsurf = torch.from_numpy(probe[:, names.index("z925")].mean(0))
     zsurf = (zsurf - zsurf.mean()) / (zsurf.std() + 1e-8)
     const = torch.stack([(zsurf > 0.15).float(), zsurf,
-                         torch.from_numpy(latitude_field(n_lat, n_lon))])[None].to(dev)
+                         torch.from_numpy(latitude_field(n_lat, n_lon))])[None]
+
+    lo = N_FRAMES - 1
+    hi_t = train.shape[0] - DIRECT_STEPS - 1
+    hi_v = val.shape[0] - DIRECT_STEPS - 1
+
+    srng = np.random.default_rng(0)
+    i = srng.choice(hi_t, size=min(1500, hi_t), replace=False)
+    dstd = (train.take(i + DIRECT_STEPS)[:, tgt]
+            - train.take(i)[:, tgt]).std(axis=(0, 2, 3)).astype(np.float32)
+    print(f"windml direct_std_physical="
+          f"{[round(float(a * b), 2) for a, b in zip(dstd, store_std_tgt)]}", flush=True)
 
     n_in = len(names) * N_FRAMES + 3
     assert n_in == 117, f"expected the paper's 117 inputs, got {n_in}"
-    model = WeatherResNetRT(cin=n_in, cout=len(TARGETS)).to(dev)
-    n_par = sum(p.numel() for p in model.parameters())
-    say(f"in_channels={n_in} params={n_par/1e6:.3f}M (paper ~6.3M)")
-
-    kern = {id(p) for p in model.conv_kernels()}
-    opt = torch.optim.Adam(
-        [{"params": [p for p in model.parameters() if id(p) in kern], "weight_decay": WD},
-         {"params": [p for p in model.parameters() if id(p) not in kern], "weight_decay": 0.0}],
-        lr=LR)
-
-    re_a_t = torch.from_numpy(re_a).to(dev)
-    re_b_t = torch.from_numpy(re_b).to(dev)
     latw = np.cos(np.deg2rad(np.linspace(-87.1875, 87.1875, n_lat)))
-    latw = torch.from_numpy((latw / latw.mean()).astype(np.float32)).to(dev)[None, None, :, None]
+    latw = (latw / latw.mean()).astype(np.float32)
 
-    hi_t = train.shape[0] - DIRECT_STEPS - 1
-    hi_v = val.shape[0] - DIRECT_STEPS - 1
-    lo = N_FRAMES - 1
+    members = [Member(d, r, n_in, len(TARGETS), re_a, re_b, const, latw, dstd)
+               for r, d in enumerate(devices)]
+    n_par = sum(p.numel() for p in members[0].model.parameters())
+    print(f"windml members={len(members)} in_channels={n_in} "
+          f"params_each={n_par/1e6:.3f}M (paper ~6.3M)", flush=True)
 
-    i = rng.choice(hi_t, size=min(1500, hi_t), replace=False)
-    d = train.take(i + DIRECT_STEPS)[:, tgt] - train.take(i)[:, tgt]
-    dstd_np = d.std(axis=(0, 2, 3)).astype(np.float32)
-    dstd = torch.from_numpy(dstd_np).to(dev)[None, :, None, None]
-    say(f"direct_std_physical={[round(float(a * b), 2) for a, b in zip(dstd_np, store_std_tgt)]}")
+    def gather(stack, idx):
+        """One gather serving all members: frames at t..t-2, plus t+12 and t."""
+        frames = [stack.take(idx - k) for k in range(N_FRAMES)]
+        return frames, stack.take(idx + DIRECT_STEPS)[:, tgt], stack.take(idx)[:, tgt]
 
-    def make_batch(stack, idx):
-        """3 normalized frames + 3 constants -> residual scaled to unit variance."""
-        frames = [torch.from_numpy(stack.take(idx - k)).to(dev) for k in range(N_FRAMES)]
-        x = torch.cat([re_a_t * f + re_b_t for f in frames]
-                      + [const.expand(len(idx), -1, -1, -1)], 1)
-        fut = torch.from_numpy(stack.take(idx + DIRECT_STEPS)[:, tgt]).to(dev)
-        now = torch.from_numpy(stack.take(idx)[:, tgt]).to(dev)
-        return x, (fut - now) / dstd
-
-    def loss_fn(p, y):
-        return (latw * (p - y) ** 2).mean()
+    def slice_for(arrs, sl):
+        frames, fut, now = arrs
+        return [f[sl] for f in frames], fut[sl], now[sl]
 
     @torch.no_grad()
     def validate():
-        model.eval()
-        tot, n = 0.0, 0
+        """Every member on the same validation batches -- the scores must compare."""
+        for m in members:
+            m.model.eval()
+        tot = [0.0] * len(members)
+        n = 0
         for s in range(lo, hi_v, BATCH * 8):
             idx = np.arange(s, min(s + BATCH, hi_v))
             if len(idx) < 2:
                 continue
-            x, y = make_batch(val, idx)
-            tot += float(loss_fn(model(x), y))
+            arrs = gather(val, idx)
+            losses = []
+            for m in members:
+                x, y = m.assemble(*arrs)     # once per member, not once per use
+                losses.append(m.loss(m.model(x), y))
             xm.mark_step()
+            for k, l in enumerate(losses):
+                tot[k] += float(l)
             n += 1
-        model.train()
-        return tot / max(n, 1)
+        for m in members:
+            m.model.train()
+        return [t / max(n, 1) for t in tot]
 
-    best, stalled, drops, lr = float("inf"), 0, 0, LR
-    step, log = 0, []
-    ckpt = OUT / f"rt2021_72h_seed{rank}.pt"
-
-    while step < MAX_STEPS:
-        idx = rng.integers(lo, hi_t, BATCH)
-        x, y = make_batch(train, idx)
-        loss = loss_fn(model(x), y)
-        opt.zero_grad(set_to_none=True)
-        loss.backward()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        # opt.step(), NOT xm.optimizer_step(): these are eight independent
-        # models. All-reducing gradients here would silently collapse the
-        # ensemble into one data-parallel run.
-        opt.step()
-        xm.mark_step()
+    step = 0
+    while step < MAX_STEPS and any(not m.done for m in members):
+        # one contiguous gather of BATCH * n_members samples, split into disjoint
+        # per-member batches: same bytes as eight separate gathers, one call
+        live = [m for m in members if not m.done]
+        idx = np.concatenate([m.rng.integers(lo, hi_t, BATCH) for m in live])
+        arrs = gather(train, idx)
+        losses = [m.train_step(*slice_for(arrs, slice(k * BATCH, (k + 1) * BATCH)))
+                  for k, m in enumerate(live)]
+        xm.mark_step()          # execute all members' graphs together
         step += 1
 
         if step % VAL_EVERY == 0:
-            v, tr = validate(), float(loss.detach())
-            if not np.isfinite(v) or not np.isfinite(tr):
-                raise SystemExit(f"RESULT FAIL core={rank} non-finite at step "
-                                 f"{step}: train={tr} val={v}")
+            vals = validate()
+            trs = [float(l.detach()) for l in losses]
             el = time.time() - t0
-            log.append({"step": step, "lr": lr, "train": tr, "val": v, "s": el})
-            say(f"step={step} lr={lr:.2e} train={tr:.4f} val={v:.4f} "
-                f"elapsed={el/60:.0f}m")
-            if v < best:
-                best, stalled = v, 0
-                # every core saves its own model, so master_only would drop
-                # seven of the eight
-                xm.save({"state_dict": model.state_dict(), "step": step, "val": v,
-                         "seed": seed, "channels": names, "targets": TARGETS,
-                         "direct_std": dstd_np.tolist(),
-                         "store_std": [float(s) for s in store_std_tgt],
-                         "n_frames": N_FRAMES, "direct_lead_h": 72},
-                        str(ckpt), master_only=False)
-            else:
-                stalled += 1
-                if stalled > EARLY_STOP:
-                    say(f"early_stop step={step} best={best:.4f}")
-                    break
-                if stalled > PLATEAU_PATIENCE and drops < MAX_DROPS:
-                    lr *= PLATEAU_FACTOR
-                    drops += 1
-                    stalled = 0
-                    for g in opt.param_groups:
-                        g["lr"] = lr
-                    say(f"lr_drop={drops}/{MAX_DROPS} -> {lr:.2e}")
-            (OUT / f"metrics_seed{rank}.json").write_text(json.dumps(
-                {"seed": seed, "log": log, "best_val": best, "params": n_par}, indent=2))
+            bad = [m.rank for m, v in zip(members, vals) if not np.isfinite(v)]
+            if bad or not all(np.isfinite(trs)):
+                raise SystemExit(f"RESULT FAIL non-finite at step {step}: "
+                                 f"members {bad} val={vals} train={trs}")
+            print(f"windml step={step} elapsed={el/60:.0f}m "
+                  f"val={[round(v, 4) for v in vals]}", flush=True)
+
+            for m, v in zip(members, vals):
+                if m.done:
+                    continue
+                m.log.append({"step": step, "lr": m.lr, "val": v, "s": el})
+                if v < m.best:
+                    m.best, m.stalled = v, 0
+                    xm.save({"state_dict": m.model.state_dict(), "step": step,
+                             "val": v, "seed": m.seed, "channels": names,
+                             "targets": TARGETS, "direct_std": dstd.tolist(),
+                             "store_std": [float(s) for s in store_std_tgt],
+                             "n_frames": N_FRAMES, "direct_lead_h": 72},
+                            str(OUT / f"rt2021_72h_seed{m.rank}.pt"))
+                else:
+                    m.stalled += 1
+                    if m.stalled > EARLY_STOP:
+                        m.done = True
+                        print(f"windml member={m.rank} early_stop step={step} "
+                              f"best={m.best:.4f}", flush=True)
+                    elif m.stalled > PLATEAU_PATIENCE and m.drops < MAX_DROPS:
+                        m.lr *= PLATEAU_FACTOR
+                        m.drops += 1
+                        m.stalled = 0
+                        for g in m.opt.param_groups:
+                            g["lr"] = m.lr
+                        print(f"windml member={m.rank} lr_drop="
+                              f"{m.drops}/{MAX_DROPS} -> {m.lr:.2e}", flush=True)
+            (OUT / "metrics.json").write_text(json.dumps(
+                {"params": n_par, "steps": step,
+                 "members": [{"rank": m.rank, "seed": m.seed, "best_val": m.best,
+                              "log": m.log} for m in members]}, indent=2))
 
         if time.time() - t0 > TIME_BUDGET_S:
-            say(f"time_budget_reached step={step}")
+            print(f"windml time_budget_reached step={step}", flush=True)
             break
 
-    say(f"best_val={best:.4f} steps={step} ckpt={ckpt.exists()}")
-    if not np.isfinite(best) or not ckpt.exists():
-        raise SystemExit(f"RESULT FAIL core={rank} best_val={best} "
-                         f"checkpoint={ckpt.exists()}")
-
-
-def _entry(rank):
-    run(xm.get_ordinal() if rank is None else rank)
-
-
-def main() -> None:
-    OUT.mkdir(parents=True, exist_ok=True)
-    print(f"windml mode={'smoke' if SMOKE else 'full'} "
-          f"world_size={xm.xrt_world_size() if hasattr(xm, 'xrt_world_size') else '?'}",
-          flush=True)
-    xmp.spawn(_entry, args=(), nprocs=None)   # None -> one process per TPU core
     saved = sorted(OUT.glob("rt2021_72h_seed*.pt"))
-    print(f"windml ensemble_members={len(saved)}", flush=True)
-    if len(saved) < 2:
-        raise SystemExit(f"RESULT FAIL only {len(saved)} member(s) saved; "
-                         f"the point of the TPU run is the ensemble")
+    bests = [round(m.best, 4) for m in members]
+    print(f"windml steps={step} members_saved={len(saved)} best_val={bests}", flush=True)
+    # A success line has to be conditional on having produced something: the
+    # first GPU run printed RESULT OK over best_val=inf and no checkpoint at all.
+    if len(saved) < 2 or not all(np.isfinite(m.best) for m in members):
+        raise SystemExit(f"RESULT FAIL saved={len(saved)} best_val={bests}")
     print("RESULT OK")
 
 

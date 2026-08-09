@@ -112,8 +112,16 @@ published analogue to what this repo does at small scale.
 |---|---|---|
 | Persistence | 936 / 1033 | 4.23 / 4.56 |
 | Climatology (WB1) | 816 | 3.50 |
-| Rasp & Thuerey 2021 ResNet (CMIP-pretrained, 6.3M params) | **268 / 499** | **1.65 / 2.41** |
+| Rasp & Thuerey 2021 ResNet, direct, **ERA5 only** (6.3M params) | **314 / 561** | 1.79 / 2.82 |
+| Rasp & Thuerey 2021 ResNet, direct, **CMIP6-pretrained** | **268 / 523** | **1.65 / 2.52** |
+| Rasp & Thuerey 2021 ResNet, continuous, CMIP6-pretrained | 284 / 499 | 1.72 / 2.41 |
+| IFS T63 | 268 / 463 | 1.85 / 2.52 |
 | Operational IFS regridded to 5.625° | 154 / 334 | 1.36 / 2.03 |
+
+(Transcribed from Table 1 of arXiv 2008.08626v2. An earlier version of this table carried
+a single "CMIP-pretrained" row reading 268 / 499 and 1.65 / 2.41 — the 3-day figures come
+from *Direct (pretrained)* and the 5-day ones from *Continuous (pretrained)*, two
+different models. The rows are separated above.)
 
 (Rasp & Thuerey did not train on wind; our tables add u10/v10/wind-speed rows scored
 identically, with the published 64×32-regridded GraphCast/HRES forecasts as the reference
@@ -214,8 +222,22 @@ the precise ranking among averages.
 
 ### Chasing the 5.625° anchor: how far we got, and what actually blocks it
 
-Rasp & Thuerey 2021 reach **z500 RMSE 268 at 3 days**. We set out to match it from
-scratch. Progression, each step a deliberate change:
+**Correction first, because it changes what the target even is.** Earlier drafts of this
+section quoted Rasp & Thuerey's **268** as the number a from-scratch ERA5 model should
+reach. It is not. Reading Table 1 of arXiv 2008.08626v2 directly:
+
+| their model | z500 @ 3d / 5d |
+|---|---|
+| Direct, **ERA5 only** | **314 / 561** |
+| Direct, **CMIP6-pretrained** | 268 / 523 |
+| Continuous, CMIP6-pretrained | 284 / 499 |
+
+268 requires pretraining on ~150 years of CMIP6 MPI-ESM-HR. The apples-to-apples target
+for a model trained only on ERA5 is **314**. Every "gap to 268" figure below was
+measured against the wrong anchor, and the gap to the right one is proportionally
+smaller — though still a miss, so the conclusion does not change, only its size.
+
+Progression, each step a deliberate change:
 
 | model | z500 @3d | what changed |
 |---|---|---|
@@ -226,9 +248,11 @@ scratch. Progression, each step a deliberate change:
 | `levels72` | 394 | + vertical inputs, direct 72h target |
 | `anchor72` | **387** | + 6.6M params, z500-weighted loss |
 | `resnet72` | 438 | full-resolution ResNet at equal wall-clock (worse) |
-| *target* | *268* | |
+| *target (ERA5-only)* | *314* | |
+| *their pretrained number* | *268* | needs 150 y of CMIP6 |
 
-**We did not reach it — we stalled at 387, 44% above.** The last two changes are worth
+**We did not reach it — we stalled at 387, 23% above the 314 ERA5-only anchor** (44%
+above the pretrained 268, which was never the right comparison). The last two changes are worth
 dwelling on because they were my main hypotheses and they mostly failed: going from
 2.95M to 6.6M parameters *and* weighting the loss 9× onto z500 together bought 1.6%.
 
@@ -272,16 +296,36 @@ worth this much capacity. `configs/resnet72_big.yaml` (1.7M params, full resolut
 ~9.5 h) is the remaining disentangler; if it still trails the 2.95M pooled `levels72`,
 the resolution explanation is dead.
 
-What this leaves: every lever predicted to close the gap to 268 — more capacity, a loss
+What this leaves: every lever predicted to close the gap — more capacity, a loss
 focused on z500, a direct target, full resolution — delivered little or backfired. The
-gap is not yet explained by anything measured here, and CMIP6 pretraining (their
-remaining difference) was never attempted.
+gap is not explained by anything measured here.
 
-Honest bottom line on this goal: **the anchor was not met.** What remains untried is
-their CMIP6 pretraining, and what is out of reach is the compute their architecture
-needs. Note also that our best *forecast* — the 5-member ensemble at z500 98 — is far
-past 268, but that blends other groups' 0.25° forecasts and is a different achievement
-entirely; the from-scratch number is 387.
+**What was actually different, found only after the fact.** Pulling the paper and the
+author's `src/networks.py` side by side against our configs, the models were not
+near-variants of each other at all:
+
+| | Rasp & Thuerey | ours (`anchor72`) |
+|---|---|---|
+| input channels | **117** (5 vars × 7 levels + t2m + precip + TOA solar, at t/t−6h/t−12h, + 3 constants) | 25–49 |
+| output channels | **3** (z500, t850, t2m) | 20 |
+| training years | 1979–2015 | 1979–2017 |
+| test years | **2017–2018** | 2020 |
+
+So this was never a compute deficit being papered over — it was a different model fed
+different inputs, scored on a different period. That also means our 387 and their 314
+are not strictly comparable numbers, which is its own reason the "gap" was never going
+to be interpretable.
+
+The faithful reproduction is now built (`src/windml/models/rt_resnet.py`, 6,355,587
+parameters against their ~6.3M) and runs on Kaggle GPU against the 2017–2018 split.
+**Its gate is 314, not 387 and not 268.** Only if that lands does CMIP6 pretraining —
+the one remaining difference, and the thing that buys 314 → 268 — become worth the
+quota.
+
+Honest bottom line on this goal as of the CPU-only phase: **the anchor was not met**, and
+the reason was modelling, not effort. Note also that our best *forecast* — the 5-member
+ensemble at z500 98 — is far past both numbers, but that blends other groups' 0.25°
+forecasts and is a different achievement entirely; the from-scratch number is 387.
 
 ### What a real 0.25° WB2 leaderboard entry would take
 
