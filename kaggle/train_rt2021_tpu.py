@@ -380,7 +380,6 @@ def main():
             times = []
             for k in range(n):
                 t = time.time()
-                t_gather = time.time() - t
                 try:
                     body()
                 except Exception as exc:
@@ -389,7 +388,7 @@ def main():
                     return None
                 xm.mark_step()
                 xm.wait_device_ops()
-                times.append((time.time() - t, t_gather))
+                times.append((time.time() - t, 0.0))
                 if k == 0:
                     print(f"windml bench {label} step1={times[0][0]:.1f}s "
                           f"(compile + execute)", flush=True)
@@ -410,6 +409,35 @@ def main():
             print(f"windml bench scaling=8members/1member={t8/t1:.2f}x "
                   f"(1.0 = perfectly parallel, 8.0 = fully serial)", flush=True)
 
+        def async_phase(label, n):
+            """Time the loop the way it actually runs: mark_step only, no
+            per-step sync.
+
+            Every other number here forces xm.wait_device_ops() so the timing
+            is real rather than enqueue time -- but the training loop does not
+            do that, it lets the host run ahead and the device queue absorb the
+            latency. If the fixed ~1.6 s/step is the instrument rather than the
+            work, this is where it shows up.
+            """
+            xm.wait_device_ops()
+            t = time.time()
+            for _ in range(n):
+                idx = np.concatenate([m.rng.integers(lo, hi_t, BATCH) for m in members])
+                arrs = gather(train, idx)
+                for j, m in enumerate(members):
+                    m.train_step(*slice_for(arrs, slice(j * BATCH, (j + 1) * BATCH)))
+                xm.mark_step()
+            xm.wait_device_ops()      # one sync, at the end
+            dt = (time.time() - t) / n
+            print(f"windml bench {label} steady={dt:.3f}s/step "
+                  f"-> {len(members)*BATCH/dt:.0f} samples/s", flush=True)
+            return dt
+
+        t8a = async_phase("8members_async", 20)
+        if t8 and t8a:
+            print(f"windml bench sync_overhead={t8 - t8a:+.3f}s/step "
+                  f"(how much of the per-step cost was the measurement)", flush=True)
+
         t8c = phase("8members_compiled", 10, members, compiled=True)
         # Tracing cost is per-step and independent of batch size, so if it
         # dominates, a bigger batch is nearly free throughput. Measured, not
@@ -423,8 +451,8 @@ def main():
         t = time.time()
         validate()
         print(f"windml bench validate_pass={time.time()-t:.1f}s", flush=True)
-        for label, s, b in (("8members", t8, BATCH),
-                            ("8members_compiled", t8c, BATCH),
+        for label, s, b in (("8members_async", t8a, BATCH),
+                            ("8members", t8, BATCH),
                             ("8members_batch128", t8b, 128)):
             if s:
                 print(f"windml bench projected_{label}={7.5*3600/s:.0f} steps "
