@@ -246,15 +246,19 @@ Progression, each step a deliberate change:
 | `unet_long_ft2` | 435 | + K=2 rollout curriculum |
 | `unet_long_ft4` | 412 | + K=4 |
 | `levels72` | 394 | + vertical inputs, direct 72h target |
-| `anchor72` | **387** | + 6.6M params, z500-weighted loss |
-| `resnet72` | 438 | full-resolution ResNet at equal wall-clock (worse) |
+| `anchor72` | 387 | + 6.6M params, z500-weighted loss |
+| `resnet72` | 438 | full-resolution ResNet, 0.5M — too small, see below |
+| `resnet72_big` | **378** | full-resolution ResNet, 1.7M, equal wall-clock |
 | *target (ERA5-only)* | *314* | |
 | *their pretrained number* | *268* | needs 150 y of CMIP6 |
 
-**We did not reach it — we stalled at 387, 23% above the 314 ERA5-only anchor** (44%
-above the pretrained 268, which was never the right comparison). The last two changes are worth
-dwelling on because they were my main hypotheses and they mostly failed: going from
-2.95M to 6.6M parameters *and* weighting the loss 9× onto z500 together bought 1.6%.
+**We did not reach it — the best from-scratch z500 is 378.5, 21% above the 314 ERA5-only
+anchor** (41% above the pretrained 268, which was never the right comparison). Two of
+these steps are worth dwelling on because they were my main hypotheses. Capacity plus
+loss weighting mostly failed: going from 2.95M to 6.6M parameters *and* weighting the
+loss 20× onto z500 together bought 1.6%. Architecture did not: dropping to a 1.7M
+full-resolution ResNet at the same wall-clock bought another 2.3% and produced the best
+number here, which is analysed in full below.
 
 Benchmarking the architecture finally explained why. Their model is a
 **fully-convolutional ResNet that never pools** — it holds 32×64 through 19 residual
@@ -279,7 +283,9 @@ it directly: same inputs, same direct-72h target, same loss weighting, same wall
 `anchor72`, but spent on a small full-resolution model (0.5M params) instead of a large
 pooled one (6.6M).
 
-**The test refuted the prediction.**
+**The test appeared to refute the prediction** — and was itself later overturned; the
+resolved version is the table two blocks down, and this one is kept because the sequence
+is the point.
 
 | model | architecture | params | z500 @3d |
 |---|---|---|---|
@@ -290,11 +296,43 @@ pooled one (6.6M).
 Full resolution came out *worse*, not better. At a fixed CPU budget, parameters behind a
 pooling bottleneck beat resolution — the opposite of what I expected.
 
-The honest caveat: this equalized *wall-clock*, not *capacity*, and the ResNet had 13×
-fewer parameters, so it does not prove resolution is irrelevant — only that it is not
-worth this much capacity. `configs/resnet72_big.yaml` (1.7M params, full resolution,
-~9.5 h) is the remaining disentangler; if it still trails the 2.95M pooled `levels72`,
-the resolution explanation is dead.
+The honest caveat at the time: this equalized *wall-clock*, not *capacity*, and the
+ResNet had 13× fewer parameters, so it did not prove resolution irrelevant — only that
+it was not worth that much capacity. `configs/resnet72_big.yaml` (1.7M params, full
+resolution) was the remaining disentangler.
+
+**And the disentangler reversed the reversal.** `resnet72_big` scores z500 **378.5** —
+the best from-scratch number in this repo, beating the 6.6M pooled `anchor72` with 3.9×
+fewer parameters:
+
+| model | architecture | params | wall-clock | z500 @3d | t850 @3d |
+|---|---|---|---|---|---|
+| `resnet72_big` | ResNet, full 32×64 | 1.7M | 4.27 h | **378.5** | 1.988 |
+| `anchor72` | U-Net, pools to 8×16 | 6.6M | 4.36 h | 387.4 | **1.870** |
+| `levels72` | U-Net, pools to 8×16 | 2.95M | 2.22 h | 393.7 | 1.992 |
+| `resnet72` | ResNet, full 32×64 | 0.5M | 1.89 h | 437.6 | 2.230 |
+
+The comparison is controlled where it matters: `resnet72_big` and `anchor72` share the
+variable set, two-frame inputs, batch size 16, LR 4e-4, the direct 72 h target and — the
+part that would otherwise confound this — **identical channel loss weights** (z500 20,
+t850 6). Wall-clock differs by 2%.
+
+So the sequence was: I predicted resolution binds → `resnet72` appeared to refute it →
+`resnet72_big` shows the refutation was a **capacity artifact**, 0.5M being simply too
+small to represent the field regardless of grid. At comparable capacity, full resolution
+wins. Note also that `anchor72` weighted z500 at 20× and *still* lost on z500 to a model
+with a quarter of its parameters, which makes the architectural reading harder to escape.
+
+Not a clean sweep, and reporting it as one would be wrong: **`anchor72` wins t850**
+(1.870 vs 1.988) under the same loss weights. Pooling costs the most on the variable with
+the sharpest gradients (geopotential) and costs little on the smoother one.
+
+The earlier claim in this report — "at a fixed CPU budget, capacity buys more than
+resolution" — was measured on the 0.5M model and does not survive. The corrected claim is
+narrower and the opposite in sign: **at comparable capacity and equal wall-clock, keeping
+the full 32×64 grid beats pooling for z500.** That is also the architecture Rasp &
+Thuerey use, which is a point in favour of the faithful reproduction rather than more
+U-Net tuning.
 
 What this leaves: every lever predicted to close the gap — more capacity, a loss
 focused on z500, a direct target, full resolution — delivered little or backfired. The
@@ -312,20 +350,20 @@ near-variants of each other at all:
 | test years | **2017–2018** | 2020 |
 
 So this was never a compute deficit being papered over — it was a different model fed
-different inputs, scored on a different period. That also means our 387 and their 314
+different inputs, scored on a different period. That also means our 378.5 and their 314
 are not strictly comparable numbers, which is its own reason the "gap" was never going
 to be interpretable.
 
 The faithful reproduction is now built (`src/windml/models/rt_resnet.py`, 6,355,587
 parameters against their ~6.3M) and runs on Kaggle GPU against the 2017–2018 split.
-**Its gate is 314, not 387 and not 268.** Only if that lands does CMIP6 pretraining —
+**Its gate is 314, not 378 and not 268.** Only if that lands does CMIP6 pretraining —
 the one remaining difference, and the thing that buys 314 → 268 — become worth the
 quota.
 
 Honest bottom line on this goal as of the CPU-only phase: **the anchor was not met**, and
 the reason was modelling, not effort. Note also that our best *forecast* — the 5-member
 ensemble at z500 98 — is far past both numbers, but that blends other groups' 0.25°
-forecasts and is a different achievement entirely; the from-scratch number is 387.
+forecasts and is a different achievement entirely; the from-scratch number is 378.5.
 
 ### What a real 0.25° WB2 leaderboard entry would take
 

@@ -161,7 +161,13 @@ def landing() -> str:
     gc = score("graphcast_2020", "wind_speed", 72)
     fuxi = score("fuxi_2020", "wind_speed", 72)
     ours = score("unet_long_ft4", "wind_speed", 72)
-    anchor = score("anchor72", "z500", 72)
+    # Best from-scratch z500, whichever model holds it -- naming one hardcodes
+    # a result. anchor72 held it at 387.4 until resnet72_big scored 378.5, and
+    # the card would have kept showing the superseded number.
+    anchor_runs = [(score(m, "z500", 72), m) for m in
+                   ("anchor72", "levels72", "resnet72", "resnet72_big")]
+    anchor_hits = [(v, m) for v, m in anchor_runs if v is not None]
+    anchor, anchor_model = min(anchor_hits) if anchor_hits else (None, None)
     ref = min(v for v in (gc, fuxi) if v is not None) if (gc or fuxi) else None
     gain = (best / ref - 1) * 100 if best and ref else None
 
@@ -172,7 +178,11 @@ def landing() -> str:
          f"beats FuXi/GraphCast ({ref:.3f})" if ref else "", True),
         ("Best from-scratch model", f"{ours:.3f}" if ours else "—",
          "our U-Net, 4 CPU cores", False),
-        ("Literature anchor (z500 @72h)", f"{anchor:.0f} vs 268" if anchor else "—",
+        # 314 is Rasp & Thuerey's ERA5-only figure; their 268 is the
+        # CMIP6-pretrained one and is not what an ERA5-only model should be
+        # measured against
+        ("Literature anchor (z500 @72h)", f"{anchor:.0f} vs 314" if anchor else "—",
+         f"not reached — {anchor_model}, ERA5-only anchor" if anchor else
          "not reached — see Research", False),
     ]
     stat_html = "".join(
