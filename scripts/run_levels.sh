@@ -7,9 +7,16 @@ PY=${PY:-.venv/bin/python}
 cd "${WINDML_REPO:?set by scripts/supervise.sh}"
 run() { echo "=== $1 @ $(date -u +%H:%M:%S) ==="; shift; $PY "$@" 2>&1 | tail -4; }
 run_eval() {
+  # Skip only if the results are NEWER than the checkpoint they score. The
+  # existence check this replaces was silently permanent: resnet72_big was
+  # evaluated once at ~3000 steps, and that Aug-6 CSV then suppressed every
+  # later eval, so the finished 11000-step model would have kept reporting the
+  # half-trained model's 431.7 with nothing to indicate it was stale.
   local label=$1 name=$2; shift 2
-  if [ -f "artifacts/results/${name}_test.csv" ]; then
-    echo "=== $label: already evaluated, skipping ==="; return 0
+  local csv="artifacts/results/${name}_test.csv"
+  local ckpt="artifacts/checkpoints/${name}/best.pt"
+  if [ -f "$csv" ] && [ ! "$ckpt" -nt "$csv" ]; then
+    echo "=== $label: results newer than checkpoint, skipping ==="; return 0
   fi
   run "$label" "$@"
 }
