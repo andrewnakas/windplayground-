@@ -18,6 +18,7 @@ fails with a bare "Authentication required" that looks like a bad key. Source
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import pathlib
@@ -60,6 +61,17 @@ KERNELS: dict[str, dict] = {
     # TPU runs one WHOLE model per core -- eight seeds, not one data-parallel
     # model (see the kernel docstring). The smoke variant needs no data at all,
     # so it can prove the 8-core plumbing before any quota goes on a real run.
+    # The paper trains a separate direct model per lead. One source, one env
+    # var; the checkpoint is named by lead so the eval kernel can group them.
+    "train_rt2021_120h": {
+        "title": "windml train rt2021 120h",
+        "source": "train_rt2021.py",
+        "gpu": True,
+        "internet": True,
+        "prelude": 'import os; os.environ["WINDML_DIRECT_STEPS"] = "20"\n',
+        "kernels": [f"{USER}/windml-prep-era5"],
+        "note": "RT2021 direct 5-day model, their ERA5-only z500 is 561",
+    },
     "eval_rt2021": {
         "title": "windml eval rt2021",
         "source": "eval_rt2021.py",
@@ -69,6 +81,22 @@ KERNELS: dict[str, dict] = {
         # has to be uploaded or published as a dataset
         "kernels": [f"{USER}/windml-prep-era5", f"{USER}/windml-train-rt2021"],
         "note": "z500/t850/t2m RMSE @72h on 2017-2018 -- the number vs 314",
+    },
+    "eval_rt2021_tpu": {
+        "title": "windml eval rt2021 tpu ensemble",
+        "source": "eval_rt2021.py",
+        "gpu": True,
+        "internet": True,
+        "kernels": [f"{USER}/windml-prep-era5", f"{USER}/windml-train-rt2021-tpu"],
+        "note": "the 8-seed ensemble and each member, scored @72h",
+    },
+    "eval_rt2021_120h": {
+        "title": "windml eval rt2021 120h",
+        "source": "eval_rt2021.py",
+        "gpu": True,
+        "internet": True,
+        "kernels": [f"{USER}/windml-prep-era5", f"{USER}/windml-train-rt2021-120h"],
+        "note": "the 5-day model scored @120h vs their 561",
     },
     "tpu_probe": {
         "title": "windml tpu probe",
@@ -118,6 +146,36 @@ def _run(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(args, capture_output=True, text=True, check=check)
 
 
+def splice_prelude(source: str, prelude: str) -> str:
+    """Insert `prelude` after the docstring and any __future__ imports.
+
+    Kaggle has no way to set an environment variable on a kernel, so a source
+    shared by several kernels is configured by injecting a line into it. That
+    line cannot go at position 0: `from __future__ import ...` is only legal as
+    the first statement, so prepending to a file that has one is an immediate
+    SyntaxError. The TPU kernel had its future-import deleted to work around
+    this; doing that to every kernel is the wrong fix.
+
+    The insertion point comes from `ast`, not a regex, so a module docstring
+    that happens to contain the words "from __future__" cannot move it.
+    """
+    if not prelude:
+        return source
+    tree = ast.parse(source)
+    after = 0
+    for node in tree.body:
+        is_doc = (isinstance(node, ast.Expr)
+                  and isinstance(node.value, ast.Constant)
+                  and isinstance(node.value.value, str))
+        is_future = isinstance(node, ast.ImportFrom) and node.module == "__future__"
+        if is_doc or is_future:
+            after = node.end_lineno       # 1-based, inclusive
+        else:
+            break
+    lines = source.splitlines(keepends=True)
+    return "".join(lines[:after]) + prelude + "".join(lines[after:])
+
+
 def slug(name: str) -> str:
     return f"{USER}/windml-{name.replace('_', '-')}"
 
@@ -131,9 +189,16 @@ def stage(name: str) -> pathlib.Path:
 
     out = STAGE / name
     out.mkdir(parents=True, exist_ok=True)
-    # Kaggle has no way to set an environment variable on a kernel, so a source
-    # shared by two kernels is configured by prepending a line to it.
-    (out / spec["source"]).write_text(spec.get("prelude", "") + src.read_text())
+    staged = splice_prelude(src.read_text(), spec.get("prelude", ""))
+
+    # Fail here, not on Kaggle. A source that does not compile still occupies a
+    # queue slot and comes back minutes later as an error, and the prelude
+    # mechanism is exactly the kind of textual edit that can break one.
+    try:
+        ast.parse(staged)
+    except SyntaxError as exc:
+        sys.exit(f"staged {name} does not compile: {exc}")
+    (out / spec["source"]).write_text(staged)
 
     meta = {
         "id": slug(name),

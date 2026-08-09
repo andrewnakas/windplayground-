@@ -23,6 +23,7 @@ reproduces and AdamW does not.
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -88,7 +89,7 @@ from torch import nn
 OUT = pathlib.Path("/kaggle/working")
 
 
-def find_input() -> pathlib.Path:
+def find_input() -> pathlib.Path:  # noqa: D401
     """Locate the prep kernel's output under /kaggle/input.
 
     Kaggle does not mount a kernel output at the slug you request it by --
@@ -111,7 +112,14 @@ IN = find_input()
 TRAIN, VAL, TEST = (1979, 2015), (2016, 2016), (2017, 2018)
 TARGETS = ["z500", "t850", "t2m"]
 N_FRAMES = 3          # t, t-6h, t-12h
-DIRECT_STEPS = 12     # 72 h at 6-hourly
+# The paper trains a SEPARATE direct model per lead (6 h, 1 d, 3 d, 5 d), so one
+# source serves them all and scripts/kaggle_run.py injects the lead. Default 12
+# = 72 h, the fidelity gate.
+DIRECT_STEPS = int(os.environ.get("WINDML_DIRECT_STEPS", "12"))
+LEAD_H = DIRECT_STEPS * 6
+# Named by lead: two leads writing rt2021_72h_best.pt would collide, and the
+# eval kernel groups checkpoints by the lead they were trained for.
+CKPT = OUT / f"rt2021_{LEAD_H}h_best.pt"
 LEAKY = 0.3
 
 BATCH = 32
@@ -352,8 +360,8 @@ def main():
                             "direct_std_physical": dstd_phys,
                             "store_mean": sm[:, tgt].ravel().tolist(),
                             "store_std": ss[:, tgt].ravel().tolist(),
-                            "n_frames": N_FRAMES, "direct_lead_h": 72},
-                           OUT / "rt2021_72h_best.pt")
+                            "n_frames": N_FRAMES, "direct_lead_h": LEAD_H},
+                           CKPT)
             else:
                 stalled += 1
                 if stalled > EARLY_STOP:
@@ -371,12 +379,11 @@ def main():
             print(f"windml time_budget_reached step={step}")
             break
 
-    ckpt = OUT / "rt2021_72h_best.pt"
-    print(f"windml best_val={best:.4f} steps={step}")
+    print(f"windml lead={LEAD_H}h best_val={best:.4f} steps={step}")
     # A success line has to be conditional on having produced something. The
     # last run printed RESULT OK over best_val=inf and no checkpoint at all.
-    if not np.isfinite(best) or not ckpt.exists():
-        raise SystemExit(f"RESULT FAIL best_val={best} checkpoint={ckpt.exists()}")
+    if not np.isfinite(best) or not CKPT.exists():
+        raise SystemExit(f"RESULT FAIL best_val={best} checkpoint={CKPT.exists()}")
     print("RESULT OK")
 
 

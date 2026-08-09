@@ -6,12 +6,18 @@ large-batch training would need the paper's LR retuned, and RT2021's BatchNorm
 makes per-core batch statistics diverge from its batch-32 recipe. All three are
 ways for a "faster" run to stop being a reproduction.
 
-Running one *whole model* per chip avoids every one of them. Each member keeps
-batch 32, LR 5e-5 and its own BatchNorm exactly as published; only the seed and
-the data order differ. No gradient is ever shared. What it buys is that the
-eight checkpoints *are* an ensemble, and ensembling is the one lever already
-measured in this repo (`avg5` beat its best member by 5.7-7.3% on wind speed
-with zero fitted parameters).
+Running one *whole model* per chip avoids every one of them. Each member has its
+own BatchNorm and its own batch; no gradient is ever shared. What it buys is
+that the eight checkpoints *are* an ensemble, and ensembling is the one lever
+already measured in this repo (`avg5` beat its best member by 5.7-7.3% on wind
+speed with zero fitted parameters).
+
+**This kernel is the EXTENSION, not the reproduction.** It deviates from Rasp &
+Thuerey on three counts, all listed at the constants below: batch 128 instead
+of 32, LR 2e-4 instead of 5e-5 (linear scaling), and gradient clipping on.
+Those are justified by the hardware, not by the paper, so no number from here
+may be quoted as a reproduction of theirs -- that claim belongs solely to the
+GPU run, which follows the recipe exactly.
 
 **One process, eight devices -- NOT xmp.spawn.** Kaggle's TPU is a
 `v5litepod-8` (v5e-8) with `TPU_PROCESS_ADDRESSES=local` and a single entry in
@@ -87,20 +93,32 @@ N_FRAMES = 3
 DIRECT_STEPS = 12          # 72 h at 6-hourly
 LEAKY = 0.3
 
-BATCH = 32
-LR = 5e-5
+# DELIBERATE DEVIATIONS FROM THE PAPER -- this kernel is the extension, not the
+# reproduction, and the fidelity claim rests entirely on the GPU run.
+#
+# Batch 128 rather than 32, with LR scaled linearly 5e-5 -> 2e-4. At batch 32
+# this hardware buys ~19k steps per member in 7.5 h, which is 20% of what the
+# GPU model gets and would produce eight undertrained members. Batch 128 costs
+# only +20% wall clock (measured: 1.978 vs 1.634 s/step, since the step is
+# latency-bound, not throughput-bound) for 4x the samples -- ~1.74M per member
+# against the GPU model's ~3.0M.
+BATCH = 128
+LR = 2e-4
 WD = 1e-5
 PLATEAU_FACTOR, PLATEAU_PATIENCE, MAX_DROPS, EARLY_STOP = 0.2, 2, 2, 5
-# Off, on two independent grounds. Measured: clip_grad_norm_ costs +274%
-# (6.17 vs 1.65 s/step) on XLA, because it walks ~120 parameters per member in
-# Python and emits a norm op for each. And the paper does not use it -- Adam,
-# LR 5e-5, batch 32 is the whole recipe, so the clipping was my addition, not
-# theirs. Dropping it is both faster and more faithful.
-CLIP_GRAD = False
-VAL_EVERY = 20 if SMOKE else 2000
+# ON here, and the earlier note that it costs +274% was wrong. Two benchmarks
+# disagreed -- 6.170 vs 1.651 s/step in the first, 1.794 vs 1.669 in the second
+# -- and the difference is run ORDER: clipping ran first in benchmark 1 and
+# absorbed the compile/warmup. +8% is the real cost.
+#
+# The paper still does not use clipping, so the GPU reproduction leaves it off.
+# But at 4x the LR with BatchNorm, a divergence would waste the whole TPU pool,
+# and 8% is cheap insurance on a run that is already labelled an extension.
+CLIP_GRAD = True
+VAL_EVERY = 20 if SMOKE else 1000
 MAX_STEPS = 60 if SMOKE else 10**9
 # Kaggle cuts TPU sessions at 9 h -- stop with room to write eight checkpoints.
-TIME_BUDGET_S = 420 if SMOKE else 7.5 * 3600
+TIME_BUDGET_S = 420 if SMOKE else 8.0 * 3600
 
 
 # ---------------------------------------------------------------- architecture
