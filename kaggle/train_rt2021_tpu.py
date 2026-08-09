@@ -13,11 +13,26 @@ already measured in this repo (`avg5` beat its best member by 5.7-7.3% on wind
 speed with zero fitted parameters).
 
 **Recipe: the paper's, unmodified.** Batch 32, LR 5e-5, no gradient clipping.
-Larger batches were tried to get more samples into a 7.5 h session and both
-died on HBM (see the constants below), so the only thing separating a member
-here from the GPU reproduction is how many steps it got -- not the recipe. The
-ensemble is therefore an extension in the sense that the paper does not
-ensemble, not in the sense of having been trained differently.
+Larger batches were tried to fit more samples into a session and both died on
+HBM, so the only thing separating a member here from the GPU reproduction is
+how many steps it got -- not the recipe. The ensemble is therefore an extension
+in the sense that the paper does not ensemble, not in the sense of having been
+trained differently.
+
+**Open: three runs died on the first host->device transfer** claiming a few MB
+free, at batches 128, 64 and 32. Four hypotheses have now been tested and all
+four were wrong:
+
+    batch size        halving it recovered only the input block's own shrinkage
+    member crowding   all 8 chips report 0.03 GB used of a 16.91 GB limit
+    host RAM          the VM has 396 GB, and 384 GB was free throughout
+    the data itself   kaggle/tpu_memdiag.py ran {synthetic, real} x {1, 8
+                      devices} and ALL FOUR passed, including the exact
+                      real + eager + 8-device case that fails here
+
+So the trigger is something this file does that the standalone diagnostic does
+not, and the hbm() calls below exist to find it rather than infer it from a
+fifth failed run.
 
 **One process, eight devices -- NOT xmp.spawn.** Kaggle's TPU is a
 `v5litepod-8` (v5e-8) with `TPU_PROCESS_ADDRESSES=local` and a single entry in
@@ -93,9 +108,6 @@ N_FRAMES = 3
 DIRECT_STEPS = 12          # 72 h at 6-hourly
 LEAKY = 0.3
 
-# DELIBERATE DEVIATIONS FROM THE PAPER -- this kernel is the extension, not the
-# reproduction, and the fidelity claim rests entirely on the GPU run.
-#
 # BACK TO THE PAPER'S EXACT VALUES, after two OOM failures showed the larger
 # batch was not buying what it was supposed to:
 #
@@ -104,8 +116,8 @@ LEAKY = 0.3
 #
 # Halving the batch recovered 16 MB, which is just the smaller input block --
 # the device was already full before training began, so the batch was never the
-# problem and a third size would fail the same way. The hbm print below
-# diagnoses the real cause.
+# problem. Batch 32 failed too; see the docstring for the four hypotheses that
+# have been tested and refuted.
 #
 # The upside of reverting: with batch 32, LR 5e-5 and no clipping, this run has
 # NO deviations from Rasp & Thuerey left. Each member is a faithful-recipe
@@ -115,14 +127,11 @@ BATCH = 32
 LR = 5e-5
 WD = 1e-5
 PLATEAU_FACTOR, PLATEAU_PATIENCE, MAX_DROPS, EARLY_STOP = 0.2, 2, 2, 5
-# ON here, and the earlier note that it costs +274% was wrong. Two benchmarks
-# disagreed -- 6.170 vs 1.651 s/step in the first, 1.794 vs 1.669 in the second
-# -- and the difference is run ORDER: clipping ran first in benchmark 1 and
-# absorbed the compile/warmup. +8% is the real cost.
-#
-# The paper still does not use clipping, so the GPU reproduction leaves it off.
-# But at 4x the LR with BatchNorm, a divergence would waste the whole TPU pool,
-# and 8% is cheap insurance on a run that is already labelled an extension.
+# OFF: the paper does not use gradient clipping, and at the paper's LR the GPU
+# reproduction was stable without it. (An earlier note here claimed clipping
+# cost +274% on XLA; that was a run-ordering artifact -- clipping ran first and
+# absorbed the compile. The real cost is ~8%. It is off for fidelity, not
+# speed.)
 CLIP_GRAD = False
 VAL_EVERY = 20 if SMOKE else 1000
 MAX_STEPS = 60 if SMOKE else 10**9
@@ -334,6 +343,31 @@ class Member:
 # ----------------------------------------------------------------------- main
 
 
+def hbm(label, devices=None):
+    """Per-device HBM plus host MemAvailable, at named points in the run.
+
+    Three runs died on the first host->device transfer claiming a few MB free,
+    while a standalone diagnostic doing the same work on the same hardware
+    reported 0.03 GB used of 16.91 GB and passed. Whatever differs is in this
+    file, so this file has to be the thing that reports it.
+    """
+    devices = devices or xm.get_xla_supported_devices()
+    try:
+        avail = [l for l in pathlib.Path("/proc/meminfo").read_text().splitlines()
+                 if l.startswith("MemAvailable")][0].split()[1]
+    except (OSError, IndexError):
+        avail = "?"
+    parts = []
+    for d in (devices[0], devices[-1]):
+        try:
+            mi = xm.get_memory_info(d)
+            parts.append(f"{d} {mi.get('bytes_used', 0)/1e9:.3f}/"
+                         f"{mi.get('bytes_limit', 0)/1e9:.2f}GB")
+        except Exception as exc:
+            parts.append(f"{d} n/a({type(exc).__name__})")
+    print(f"windml hbm [{label}] host_avail={avail}kB " + " ".join(parts), flush=True)
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
@@ -366,10 +400,20 @@ def main():
         # the exact train statistics rather than round-tripping through physical
         re_a, re_b = ss / std, (sm - mean) / std
         store_std_tgt = ss[0, [names.index(t) for t in TARGETS], 0, 0]
-        train, val = YearStack(src, *TRAIN), YearStack(src, *VAL)
+        # mmap, not eager. kaggle/tpu_memdiag.py ran the 2x2 of
+        # {synthetic, real} x {1 device, 8 devices} and ALL FOUR passed --
+        # including real+eager+8dev, the exact configuration that failed here
+        # three times -- so neither the data nor the device count is the
+        # trigger, and the host has 396 GB so RAM never was either. mmap is
+        # kept because case C proved it works and it is strictly lighter; the
+        # eager load only ever existed to stop 8 processes duplicating the
+        # array, and this has been single-process since the xmp.spawn rewrite.
+        train = YearStack(src, *TRAIN, eager=False)
+        val = YearStack(src, *VAL, eager=False)
 
     tgt = [names.index(t) for t in TARGETS]
     n_lat, n_lon = train.shape[2], train.shape[3]
+    hbm("after-data-load", devices)
     print(f"windml train={train.shape} val={val.shape} "
           f"load={time.time()-t0:.0f}s", flush=True)
 
@@ -400,6 +444,7 @@ def main():
     latw = np.cos(np.deg2rad(np.linspace(-87.1875, 87.1875, n_lat)))
     latw = (latw / latw.mean()).astype(np.float32)
 
+    hbm("pre-build", devices)
     members = [Member(d, r, n_in, len(TARGETS), re_a, re_b, const, latw, dstd)
                for r, d in enumerate(devices)]
     n_par = sum(p.numel() for p in members[0].model.parameters())
@@ -412,22 +457,7 @@ def main():
     xm.mark_step()
     xm.wait_device_ops()
 
-    # Report per-device HBM before a single batch is transferred. Two runs died
-    # here with the device essentially full -- 21 MB free at batch 128, 37 MB at
-    # batch 64 -- and halving the batch barely moved the needle, so the batch is
-    # not what is consuming it. The obvious suspect is that the eight members
-    # are not actually spread across the eight chips. This says so outright
-    # instead of costing another run to infer.
-    for d in devices:
-        try:
-            mi = xm.get_memory_info(d)
-            used = mi.get("bytes_used", mi.get("kb_total", 0))
-            limit = mi.get("bytes_limit", 0)
-            print(f"windml hbm {d} used={used/1e9:.2f}GB limit={limit/1e9:.2f}GB",
-                  flush=True)
-        except Exception as exc:                       # API differs across versions
-            print(f"windml hbm {d} unavailable: {type(exc).__name__}", flush=True)
-            break
+    hbm("post-build")
 
     def gather(stack, idx):
         """One packed block for the whole step: frames t..t-2, then t+72h, then t.
