@@ -48,7 +48,13 @@ KERNELS: dict[str, dict] = {
         "source": "train_rt2021.py",
         "gpu": True,
         "internet": True,
-        "datasets": [f"{USER}/windml-era5-rt2021"],
+        "datasets": [],
+        # Mount the prep kernel's OUTPUT directly. It landed at
+        # /kaggle/input/windml-prep-era5, so the 9 GB of arrays never move --
+        # they do not fit in this container anyway (pulling them once took the
+        # disk to 100%). An earlier version pointed at a windml-era5-rt2021
+        # dataset that was never created.
+        "kernels": [f"{USER}/windml-prep-era5"],
         "note": "RT2021 ResNet, direct 72h, the 314 fidelity gate",
     },
 }
@@ -103,7 +109,7 @@ def stage(name: str) -> pathlib.Path:
         "enable_internet": bool(spec.get("internet", True)),
         "dataset_sources": spec.get("datasets", []),
         "competition_sources": [],
-        "kernel_sources": [],
+        "kernel_sources": spec.get("kernels", []),
     }
     (out / "kernel-metadata.json").write_text(json.dumps(meta, indent=2))
     return out
