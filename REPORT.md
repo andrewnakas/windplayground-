@@ -291,21 +291,28 @@ pooled one (6.6M).
 inputs and a direct 72 h target — and `direct72` separates them by applying only the
 direct target to the plain 8-channel set:
 
-| model | channel set | target | steps | z500 @3d |
-|---|---|---|---|---|
-| `direct72` | core (8 ch) | direct 72 h | 20k | 455.6 |
-| `unet_long` | core (8 ch) | iterative 6 h | 45k | 454.9 |
-| `unet_long_ft4` | core (8 ch) | + K=4 rollout fine-tune | 45k + | 411.7 |
-| `levels72` | levels (vertical) | direct 72 h | 14k | 393.7 |
+| model | channel set | target | steps | z500 @3d | z500 @5d |
+|---|---|---|---|---|---|
+| `direct72` / `direct120` | core (8 ch) | direct | 20k | 455.6 | 696.3 |
+| `unet_long` | core (8 ch) | iterative 6 h | 45k | 454.9 | 706.5 |
+| `unet_long_ft4` | core (8 ch) | + K=4 rollout fine-tune | 45k + | **411.7** | **642.5** |
+| `levels72` / `levels120` | levels (vertical) | direct | 14k / 18k | 393.7 | 671.9 |
 
-The budgets are not equal — `direct72` got 20k steps against `unet_long`'s 45k — so this
-is weaker than the resolution comparison above and is reported as such. What it does show
-is that the direct target alone lands on top of the iterative base model (455.6 vs 454.9)
-at under half the steps, and clearly behind the rollout-fine-tuned version. So the ~15%
-that `levels72` gained over `unet_long` is attributable mainly to the **vertical inputs**,
-not to the direct target, and the progression table above should be read that way.
-Rollout fine-tuning is separately worth ~10% on the iterative path, and the direct models
-never received an equivalent refinement.
+The budgets are not equal — the direct models got 20k steps against `unet_long`'s 45k —
+so this is weaker than the resolution comparison above and is reported as such. What it
+shows, and now at **both leads rather than one**, is that the direct target alone lands
+essentially on top of the iterative base model (455.6 vs 454.9 at 3 d; 696.3 vs 706.5 at
+5 d) while using under half the steps, and clearly behind the rollout-fine-tuned version
+at both. So the ~15% that `levels72` gained over `unet_long` is attributable mainly to
+the **vertical inputs**, not to the direct target, and the progression table above should
+be read that way.
+
+Rollout fine-tuning is the one cheap lever that works consistently here: −9.5% at 3 d and
+−9.1% at 5 d over its own base, and `unet_long_ft4` remains the best 5-day model in the
+repo despite the direct models being aimed squarely at that lead. Direct-lead prediction
+wins at 72 h only once it is paired with vertical inputs, and loses at 120 h even then
+(671.9 against 642.5) — the horizon where a single shot has to cover the most evolution
+is where iterating with a corrected rollout pays off most.
 
 **The test appeared to refute the prediction** — and was itself later overturned; the
 resolved version is the table two blocks down, and this one is kept because the sequence

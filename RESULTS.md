@@ -71,6 +71,7 @@ usually quoted, and it costs ~150 years of CMIP6 data to reach.
 | anchor72                   | nan     |   2.399 | nan     |
 | avg4ml                     |   0.38  |   0.865 |   1.559 |
 | avg5                       |   0.374 |   0.838 |   1.516 |
+| direct120                  | nan     | nan     |   3.214 |
 | direct72                   | nan     |   2.525 | nan     |
 | fuxi_2020                  |   0.396 |   0.915 |   1.692 |
 | graph_6k                   |   2.234 |   3.65  |   4.285 |
@@ -108,6 +109,7 @@ usually quoted, and it costs ~150 years of CMIP6 data to reach.
 | anchor72                   | nan     |   2.578 | nan     |
 | avg4ml                     |   0.405 |   0.936 |   1.694 |
 | avg5                       |   0.398 |   0.907 |   1.647 |
+| direct120                  | nan     | nan     |   3.47  |
 | direct72                   | nan     |   2.714 | nan     |
 | fuxi_2020                  |   0.422 |   0.991 |   1.841 |
 | graph_6k                   |   2.436 |   3.766 |   4.187 |
@@ -145,6 +147,7 @@ usually quoted, and it costs ~150 years of CMIP6 data to reach.
 | anchor72                   | nan     |   2.226 | nan     |
 | avg4ml                     |   0.368 |   0.814 |   1.404 |
 | avg5                       |   0.361 |   0.791 |   1.38  |
+| direct120                  | nan     | nan     |   3.162 |
 | direct72                   | nan     |   2.333 | nan     |
 | fuxi_2020                  |   0.383 |   0.853 |   1.47  |
 | graph_6k                   |   2.105 |   3.327 |   3.75  |
@@ -182,6 +185,7 @@ usually quoted, and it costs ~150 years of CMIP6 data to reach.
 | anchor72                   | nan     |   3.481 | nan     |
 | avg4ml                     |   0.614 |   1.27  |   2.233 |
 | avg5                       |   0.604 |   1.233 |   2.173 |
+| direct120                  | nan     | nan     |   4.729 |
 | direct72                   | nan     |   3.684 | nan     |
 | fuxi_2020                  |   0.639 |   1.343 |   2.417 |
 | graph_6k                   |   3.256 |   5.357 |   6.347 |
@@ -219,6 +223,7 @@ usually quoted, and it costs ~150 years of CMIP6 data to reach.
 | anchor72                   | nan     |   3.677 | nan     |
 | avg4ml                     |   0.653 |   1.386 |   2.423 |
 | avg5                       |   0.639 |   1.343 |   2.356 |
+| direct120                  | nan     | nan     |   4.883 |
 | direct72                   | nan     |   3.885 | nan     |
 | fuxi_2020                  |   0.682 |   1.467 |   2.627 |
 | graph_6k                   |   3.544 |   5.292 |   5.808 |
@@ -256,6 +261,7 @@ usually quoted, and it costs ~150 years of CMIP6 data to reach.
 | anchor72                   | nan     | 387.445 |  nan     |
 | avg4ml                     |  30.992 | 103.897 |  235.963 |
 | avg5                       |  29.593 |  98.503 |  226.489 |
+| direct120                  | nan     | nan     |  696.256 |
 | direct72                   | nan     | 455.573 |  nan     |
 | fuxi_2020                  |  34.774 | 113.825 |  258.58  |
 | graph_6k                   | 364.392 | 772.292 |  976.437 |
@@ -293,6 +299,7 @@ usually quoted, and it costs ~150 years of CMIP6 data to reach.
 | anchor72                   | nan     |   1.541 | nan     |
 | avg4ml                     |   0.326 |   0.561 |   0.912 |
 | avg5                       |   0.339 |   0.555 |   0.889 |
+| direct120                  | nan     | nan     |   2.091 |
 | direct72                   | nan     |   1.545 | nan     |
 | fuxi_2020                  |   0.365 |   0.619 |   1.012 |
 | graph_6k                   |   1.499 |   2.798 |   3.624 |
@@ -330,6 +337,7 @@ usually quoted, and it costs ~150 years of CMIP6 data to reach.
 | anchor72                   | nan     |   0.783 | nan     |
 | avg4ml                     |   0.995 |   0.974 |   0.919 |
 | avg5                       |   0.995 |   0.975 |   0.922 |
+| direct120                  | nan     | nan     |   0.471 |
 | direct72                   | nan     |   0.759 | nan     |
 | fuxi_2020                  |   0.994 |   0.971 |   0.911 |
 | graph_6k                   |   0.808 |   0.428 |   0.276 |
@@ -366,6 +374,7 @@ usually quoted, and it costs ~150 years of CMIP6 data to reach.
 | anchor72                   |     nan   |     163   |      nan   |     nan   |     161.6 |      nan   |            nan   |            159.4 |             nan   |
 | avg4ml                     |      -4.9 |      -5.2 |       -7.6 |      -4.7 |      -5   |       -7.2 |             -5.5 |             -5.2 |              -5   |
 | avg5                       |      -6.4 |      -8.1 |      -10.1 |      -6.3 |      -7.9 |       -9.8 |             -7.3 |             -7.8 |              -6.7 |
+| direct120                  |     nan   |     nan   |       90.5 |     nan   |     nan   |       90   |            nan   |            nan   |             113.8 |
 | direct72                   |     nan   |     176.8 |      nan   |     nan   |     175.4 |      nan   |            nan   |            171.8 |             nan   |
 | fuxi_2020                  |      -0.9 |       0.3 |        0.3 |      -0.7 |       0.6 |        0.8 |             -1.6 |             -0.6 |              -0.6 |
 | graph_6k                   |     459   |     300.1 |      154   |     473.7 |     282.3 |      129.3 |            441.1 |            287.5 |             153.6 |
