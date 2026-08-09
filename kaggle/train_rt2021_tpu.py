@@ -96,14 +96,20 @@ LEAKY = 0.3
 # DELIBERATE DEVIATIONS FROM THE PAPER -- this kernel is the extension, not the
 # reproduction, and the fidelity claim rests entirely on the GPU run.
 #
-# Batch 128 rather than 32, with LR scaled linearly 5e-5 -> 2e-4. At batch 32
+# Batch 64 rather than 32, with LR scaled linearly 5e-5 -> 1e-4. At batch 32
 # this hardware buys ~19k steps per member in 7.5 h, which is 20% of what the
-# GPU model gets and would produce eight undertrained members. Batch 128 costs
-# only +20% wall clock (measured: 1.978 vs 1.634 s/step, since the step is
-# latency-bound, not throughput-bound) for 4x the samples -- ~1.74M per member
-# against the GPU model's ~3.0M.
-BATCH = 128
-LR = 2e-4
+# GPU model gets and would produce eight undertrained members; the step is
+# latency-bound, so a larger batch is nearly free wall-clock.
+#
+# 128 was tried first and died: `RESOURCE_EXHAUSTED: Attempting to allocate
+# 120.00M. That was not possible. There are 21.36M free` on the very first
+# input transfer. It had survived six steps inside the benchmark, which was not
+# the same test -- the benchmark reached batch 128 after other phases had
+# already forced parameters and optimizer state to materialize, whereas the
+# real run hits it cold. 64 halves the activation footprint and still doubles
+# the samples per member over the paper's batch.
+BATCH = 64
+LR = 1e-4
 WD = 1e-5
 PLATEAU_FACTOR, PLATEAU_PATIENCE, MAX_DROPS, EARLY_STOP = 0.2, 2, 2, 5
 # ON here, and the earlier note that it costs +274% was wrong. Two benchmarks
@@ -396,6 +402,13 @@ def main():
     n_par = sum(p.numel() for p in members[0].model.parameters())
     print(f"windml members={len(members)} in_channels={n_in} "
           f"params_each={n_par/1e6:.3f}M (paper ~6.3M)", flush=True)
+    # Materialize parameters and optimizer state NOW rather than letting them
+    # land in the same execution as the first batch. XLA is lazy, so without
+    # this the first step must allocate weights, Adam moments and a full
+    # activation tree at once, which is where the batch-128 attempt ran out of
+    # HBM.
+    xm.mark_step()
+    xm.wait_device_ops()
 
     def gather(stack, idx):
         """One packed block for the whole step: frames t..t-2, then t+72h, then t.

@@ -252,9 +252,13 @@ Progression, each step a deliberate change:
 | *target (ERA5-only)* | *314* | |
 | *their pretrained number* | *268* | needs 150 y of CMIP6 |
 
-**We did not reach it — the best from-scratch z500 is 378.5, 21% above the 314 ERA5-only
-anchor** (41% above the pretrained 268, which was never the right comparison). Two of
-these steps are worth dwelling on because they were my main hypotheses. Capacity plus
+**These adapted models never reached it — the best is 378.5, 21% above the 314 ERA5-only
+anchor.** The anchor was eventually met, but not by any of them: it took the *faithful*
+RT2021 recreation (117 inputs, 3 outputs, their exact recipe) trained on a GPU, which
+scores **306.7** and is covered in its own section below. This progression is the record
+of what could and could not be bought by adapting a different model, and the answer turns
+out to be "not enough". Two of these steps are worth dwelling on because they were my
+main hypotheses. Capacity plus
 loss weighting mostly failed: going from 2.95M to 6.6M parameters *and* weighting the
 loss 20× onto z500 together bought 1.6%. Architecture did not: dropping to a 1.7M
 full-resolution ResNet at the same wall-clock bought another 2.3% and produced the best
@@ -374,16 +378,50 @@ different inputs, scored on a different period. That also means our 378.5 and th
 are not strictly comparable numbers, which is its own reason the "gap" was never going
 to be interpretable.
 
-The faithful reproduction is now built (`src/windml/models/rt_resnet.py`, 6,355,587
-parameters against their ~6.3M) and runs on Kaggle GPU against the 2017–2018 split.
-**Its gate is 314, not 378 and not 268.** Only if that lands does CMIP6 pretraining —
-the one remaining difference, and the thing that buys 314 → 268 — become worth the
-quota.
+### The faithful reproduction: 306.7, which passes the anchor
 
-Honest bottom line on this goal as of the CPU-only phase: **the anchor was not met**, and
-the reason was modelling, not effort. Note also that our best *forecast* — the 5-member
-ensemble at z500 98 — is far past both numbers, but that blends other groups' 0.25°
-forecasts and is a different achievement entirely; the from-scratch number is 378.5.
+Built as `src/windml/models/rt_resnet.py` (**6,355,587** parameters against their ~6.3M)
+and trained on a Kaggle P100 for 111,454 steps at the paper's recipe — 117 inputs, 3
+outputs, batch 32, LR 5e-5, plain Adam with conv-only L2 1e-5, plateau ×0.2 twice, both
+drops taken, validation flat at 0.1150 over the last ~20k steps. Scored on **2017–2018**,
+all 2906 six-hourly inits with a valid +72 h verification, latitude-weighted RMSE:
+
+| variable @72 h | **ours** | R&T ERA5-only | vs | R&T CMIP6-pretrained |
+|---|---|---|---|---|
+| z500 (m²/s²) | **306.7** | 314 | **−2.3%** | 268 |
+| t850 (K) | **1.53** | 1.79 | **−14.3%** | 1.65 |
+| t2m (K) | **1.21** | 1.53 | **−21.1%** | 1.42 |
+
+**The anchor is met on all three variables**, and t850 and t2m also come in under their
+*pretrained* figures — the ones that cost 150 years of CMIP6. z500 does not: 306.7 is
+comfortably past the ERA5-only 314 but still 14% above the pretrained 268, which is
+consistent with the paper's own finding that pretraining helps geopotential most.
+
+This is the same grid, the same test years and the same metric as theirs, so the
+comparison is like-for-like. Four differences remain, all of which make it a *close*
+reproduction rather than an identical one, and any of them could account for a few
+percent either way:
+
+- **TOA solar radiation is computed analytically** (Spencer 1971) rather than read from
+  the archive, because WeatherBench-2's 64×32 ERA5 does not ship the field. It is pure
+  solar geometry, so this is exact rather than a substitute.
+- **Land-sea mask and orography are stand-ins** derived from the time mean of 925 hPa
+  geopotential, since the prep output does not carry ERA5's own constant fields. This is
+  the crudest of the four and the one most likely to matter.
+- **Training length was ours to choose.** The paper reports ~1 day on a GTX 2080 without
+  a step count; we ran 111k steps to a flat validation curve. Some of the margin is
+  probably just more training.
+- **Source data** is the WB2 conservatively-regridded ERA5, not the WeatherBench-1 files
+  the paper used.
+
+So: the recreation reaches and slightly exceeds the published ERA5-only model. The
+remaining 306.7 → 268 step is CMIP6 pretraining, which is now the one lever the paper
+used that this project has not.
+
+Note also that our best *forecast* — the 5-member ensemble at z500 98 — is far past both
+numbers, but that blends other groups' 0.25° forecasts and is a different achievement
+entirely; the best from-scratch model at coarse resolution is this one at 306.7, and the
+best without the paper's 117-channel input design is `resnet72_big` at 378.5.
 
 ### What a real 0.25° WB2 leaderboard entry would take
 
