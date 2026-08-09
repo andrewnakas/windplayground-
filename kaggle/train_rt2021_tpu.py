@@ -227,28 +227,44 @@ class Member:
             [{"params": [p for p in params if id(p) in kern], "weight_decay": WD},
              {"params": [p for p in params if id(p) not in kern], "weight_decay": 0.0}],
             lr=LR)
-        self.re_a = torch.from_numpy(re_a).to(dev)
-        self.re_b = torch.from_numpy(re_b).to(dev)
+        # tiled over the three frames so the whole dynamic block normalizes in
+        # one multiply-add rather than three
+        self.re_a3 = torch.from_numpy(np.tile(re_a, (1, N_FRAMES, 1, 1))).to(dev)
+        self.re_b3 = torch.from_numpy(np.tile(re_b, (1, N_FRAMES, 1, 1))).to(dev)
         self.const = const.to(dev)
         self.latw = torch.from_numpy(latw).to(dev)[None, None, :, None]
         self.dstd = torch.from_numpy(dstd).to(dev)[None, :, None, None]
         self.lr, self.best, self.stalled, self.drops = LR, float("inf"), 0, 0
         self.log, self.done = [], False
 
-    def assemble(self, frames, fut, now):
-        """Host float32 -> device tensors -> (117-channel input, scaled residual)."""
-        xs = [self.re_a * torch.from_numpy(f).to(self.dev) + self.re_b for f in frames]
-        x = torch.cat(xs + [self.const.expand(len(fut), -1, -1, -1)], 1)
-        y = (torch.from_numpy(fut).to(self.dev)
-             - torch.from_numpy(now).to(self.dev)) / self.dstd
+    def assemble(self, blk):
+        """One packed host array -> (117-channel input, scaled residual).
+
+        ONE transfer per step, not five. The earlier version sent the three
+        frames, the future target and the current state as separate `.to(dev)`
+        calls, and the benchmark showed why that mattered: one member cost
+        1.96 s/step and eight cost 1.67 s -- identical, because transfers to
+        different chips overlap while the five within a member serialize. Five
+        round trips at ~350 ms is the entire per-step cost; the chips were
+        idle for nearly all of it.
+
+        Layout of `blk` is (N, 3*C + 2*len(TARGETS), H, W): frames at t, t-6h,
+        t-12h, then the +72 h target, then the current state.
+        """
+        d = torch.from_numpy(blk).to(self.dev)
+        c3 = self.re_a3.shape[1]
+        n_t = (d.shape[1] - c3) // 2
+        x = torch.cat([d[:, :c3] * self.re_a3 + self.re_b3,
+                       self.const.expand(d.shape[0], -1, -1, -1)], 1)
+        y = (d[:, c3:c3 + n_t] - d[:, c3 + n_t:]) / self.dstd
         return x, y
 
     def loss(self, pred, y):
         return (self.latw * (pred - y) ** 2).mean()
 
-    def train_step(self, frames, fut, now, clip=CLIP_GRAD):
+    def train_step(self, blk, clip=CLIP_GRAD):
         """Build the graph; execution waits for the caller's single mark_step."""
-        x, y = self.assemble(frames, fut, now)
+        x, y = self.assemble(blk)
         loss = self.loss(self.model(x), y)
         self.opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -340,13 +356,21 @@ def main():
           f"params_each={n_par/1e6:.3f}M (paper ~6.3M)", flush=True)
 
     def gather(stack, idx):
-        """One gather serving all members: frames at t..t-2, plus t+12 and t."""
-        frames = [stack.take(idx - k) for k in range(N_FRAMES)]
-        return frames, stack.take(idx + DIRECT_STEPS)[:, tgt], stack.take(idx)[:, tgt]
+        """One packed block for the whole step: frames t..t-2, then t+72h, then t.
 
-    def slice_for(arrs, sl):
-        frames, fut, now = arrs
-        return [f[sl] for f in frames], fut[sl], now[sl]
+        Concatenated on the host so each member needs a single transfer. The
+        channel layout is what Member.assemble unpacks.
+        """
+        now = stack.take(idx)
+        return np.concatenate(
+            [now] + [stack.take(idx - k) for k in range(1, N_FRAMES)]
+            + [stack.take(idx + DIRECT_STEPS)[:, tgt], now[:, tgt]], axis=1)
+
+    def slice_for(blk, sl):
+        # ascontiguousarray: a row slice of a C-ordered array is already
+        # contiguous, but being explicit keeps the single-transfer promise
+        # true if the layout ever changes
+        return (np.ascontiguousarray(blk[sl]),)
 
     def benchmark():
         """Separate compile cost from steady state, and A/B gradient clipping.
@@ -438,25 +462,21 @@ def main():
             print(f"windml bench sync_overhead={t8 - t8a:+.3f}s/step "
                   f"(how much of the per-step cost was the measurement)", flush=True)
 
-        t8c = phase("8members_compiled", 10, members, compiled=True)
-        # Tracing cost is per-step and independent of batch size, so if it
-        # dominates, a bigger batch is nearly free throughput. Measured, not
-        # assumed -- and only worth acting on if the recipe can afford it.
-        t8b = phase("8members_batch128", 6, members, batch=128)
-        t8clip = phase("8members_clip", 6, members, clip=True)
-
-        if t8 and t8clip:
-            print(f"windml bench clip_overhead={t8clip - t8:+.3f}s/step "
-                  f"({100*(t8clip-t8)/t8:+.0f}%)", flush=True)
+        # Previously measured on this same hardware, before packing: 1 member
+        # 1.957, 8 members 1.669, async 1.634, compiled 1.681 (no help), batch
+        # 128 1.978, clipping +274%. Those are the baseline this run is
+        # compared against -- the compiled / batch-128 / clipping phases are
+        # not repeated, both because they are answered and because running six
+        # differently-shaped graphs in one process exhausted HBM.
+        print("windml bench baseline_before_packing 1member=1.957 8members=1.669 "
+              "async=1.634 s/step", flush=True)
         t = time.time()
         validate()
         print(f"windml bench validate_pass={time.time()-t:.1f}s", flush=True)
-        for label, s, b in (("8members_async", t8a, BATCH),
-                            ("8members", t8, BATCH),
-                            ("8members_batch128", t8b, 128)):
+        for label, s in (("8members_async", t8a), ("8members", t8)):
             if s:
                 print(f"windml bench projected_{label}={7.5*3600/s:.0f} steps "
-                      f"in 7.5h = {7.5*3600/s*b/1000:.0f}k samples per member",
+                      f"in 7.5h = {7.5*3600/s*BATCH/1000:.0f}k samples per member",
                       flush=True)
 
     @torch.no_grad()
@@ -473,7 +493,7 @@ def main():
             arrs = gather(val, idx)
             losses = []
             for m in members:
-                x, y = m.assemble(*arrs)     # once per member, not once per use
+                x, y = m.assemble(arrs)      # once per member, not once per use
                 losses.append(m.loss(m.model(x), y))
             xm.mark_step()
             for k, l in enumerate(losses):
