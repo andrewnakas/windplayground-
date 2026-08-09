@@ -118,21 +118,30 @@ def latitude_field(n_lat, n_lon):
                            (n_lat, n_lon)).astype(np.float32)
 
 
-def find(pattern):
+def find_all(pattern):
     hits = sorted(pathlib.Path("/kaggle/input").glob(pattern))
     if not hits:
         listing = [str(p) for p in sorted(pathlib.Path("/kaggle/input").glob("*"))]
         raise SystemExit(f"RESULT FAIL no {pattern} under /kaggle/input; "
                          f"mounted: {', '.join(listing) or '<empty>'}")
-    return hits[0]
+    return hits
+
+
+def find(pattern):
+    return find_all(pattern)[0]
 
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     src = find("**/meta.json").parent
-    ckpt_path = find("**/rt2021_72h_*.pt")
-    print(f"windml data={src} ckpt={ckpt_path} device={dev}", flush=True)
+    # One checkpoint from the GPU run, or eight from the TPU ensemble -- the
+    # ensemble IS the deliverable there, so scoring one member and calling it
+    # the result would miss the point of the run.
+    ckpt_paths = find_all("**/rt2021_72h_*.pt")
+    print(f"windml data={src} checkpoints={len(ckpt_paths)} device={dev}", flush=True)
+    for p in ckpt_paths:
+        print(f"windml   ckpt={p.name}", flush=True)
 
     meta = json.loads((src / "meta.json").read_text())
     stats = json.loads((src / "stats.json").read_text())
@@ -147,13 +156,15 @@ def main():
     re_b = np.tile((sm - mean) / std, (1, N_FRAMES, 1, 1))
     store_std_tgt = ss[0, tgt, 0, 0]                       # (3,)
 
-    ck = torch.load(ckpt_path, map_location="cpu", weights_only=False)
-    dstd = np.asarray(ck["direct_std"], np.float32).reshape(1, len(TARGETS), 1, 1)
-    print(f"windml ckpt_step={ck.get('step')} val={ck.get('val')} "
-          f"targets={ck.get('targets')}", flush=True)
-    if ck.get("targets") != TARGETS:
-        raise SystemExit(f"RESULT FAIL checkpoint targets {ck.get('targets')} "
-                         f"!= {TARGETS}; the scoring would be mislabelled")
+    cks = [torch.load(p, map_location="cpu", weights_only=False) for p in ckpt_paths]
+    for p, ck in zip(ckpt_paths, cks):
+        print(f"windml {p.stem} step={ck.get('step')} val={ck.get('val')} "
+              f"seed={ck.get('seed')}", flush=True)
+        if ck.get("targets") != TARGETS:
+            raise SystemExit(f"RESULT FAIL {p.name} targets {ck.get('targets')} "
+                             f"!= {TARGETS}; the scoring would be mislabelled")
+    dstds = [np.asarray(ck["direct_std"], np.float32).reshape(1, len(TARGETS), 1, 1)
+             for ck in cks]
 
     test = YearStack(src, *TEST)
     n_lat, n_lon = test.shape[2], test.shape[3]
@@ -171,9 +182,12 @@ def main():
                          torch.from_numpy(latitude_field(n_lat, n_lon))])[None].to(dev)
     del probe, train
 
-    model = WeatherResNetRT(cin=len(names) * N_FRAMES + 3, cout=len(TARGETS)).to(dev)
-    model.load_state_dict(ck["state_dict"])
-    model.eval()
+    models = []
+    for ck in cks:
+        mdl = WeatherResNetRT(cin=len(names) * N_FRAMES + 3, cout=len(TARGETS)).to(dev)
+        mdl.load_state_dict(ck["state_dict"])
+        mdl.eval()
+        models.append(mdl)
 
     # WeatherBench weighting: cos(latitude), normalized to mean 1
     w = np.cos(np.deg2rad(np.linspace(-87.1875, 87.1875, n_lat))).astype(np.float32)
@@ -182,7 +196,8 @@ def main():
 
     re_a_t = torch.from_numpy(re_a).to(dev)
     re_b_t = torch.from_numpy(re_b).to(dev)
-    dstd_t = torch.from_numpy(dstd).to(dev)
+    dstd_t = [torch.from_numpy(d).to(dev) for d in dstds]
+    sst = torch.from_numpy(store_std_tgt.copy()).to(dev)
 
     lo = N_FRAMES - 1
     hi = test.shape[0] - DIRECT_STEPS
@@ -190,7 +205,8 @@ def main():
     print(f"windml test_inits={len(inits)} years={TEST[0]}-{TEST[1]} "
           f"(all 6-hourly inits with a valid +72h verification)", flush=True)
 
-    sq = torch.zeros(len(TARGETS), device=dev)
+    sq = [torch.zeros(len(TARGETS), device=dev) for _ in models]
+    sq_ens = torch.zeros(len(TARGETS), device=dev)
     n = 0
     with torch.no_grad():
         for s in range(0, len(inits), BATCH):
@@ -204,29 +220,49 @@ def main():
             now_t = torch.from_numpy(now[:, tgt]).to(dev)
             truth = torch.from_numpy(test.take(idx + DIRECT_STEPS)[:, tgt]).to(dev)
 
-            pred = now_t + model(x) * dstd_t          # both in stored units
-            sq += (wt * (pred - truth) ** 2).mean(dim=(2, 3)).sum(dim=0)
+            acc = None
+            for k, mdl in enumerate(models):
+                pred = now_t + mdl(x) * dstd_t[k]      # both in stored units
+                sq[k] += (wt * (pred - truth) ** 2).mean(dim=(2, 3)).sum(dim=0)
+                acc = pred if acc is None else acc + pred
+            # plain mean of member forecasts: no fitted weights, which is what
+            # made the earlier avg5 result in this repo credible
+            ens = acc / len(models)
+            sq_ens += (wt * (ens - truth) ** 2).mean(dim=(2, 3)).sum(dim=0)
             n += len(idx)
             if s % (BATCH * 20) == 0:
                 print(f"windml scored={n}/{len(inits)}", flush=True)
 
     # stored -> physical: store_mean cancels in a difference, so only the scale
-    rmse = (torch.sqrt(sq / n).cpu().numpy() * store_std_tgt)
-    result = {t: float(r) for t, r in zip(TARGETS, rmse)}
-    if not all(np.isfinite(list(result.values()))):
-        raise SystemExit(f"RESULT FAIL non-finite RMSE: {result}")
+    def to_rmse(acc):
+        r = (torch.sqrt(acc / n) * sst).cpu().numpy()
+        return {t: float(v) for t, v in zip(TARGETS, r)}
 
-    print("windml " + "=" * 60, flush=True)
+    members = [to_rmse(a) for a in sq]
+    ensemble = to_rmse(sq_ens)
+    best = min(members, key=lambda r: r["z500"])
+    headline = ensemble if len(models) > 1 else members[0]
+    if not all(np.isfinite(list(headline.values()))):
+        raise SystemExit(f"RESULT FAIL non-finite RMSE: {headline}")
+
+    print("windml " + "=" * 66, flush=True)
     for t in TARGETS:
-        ours, era, pre = result[t], PAPER["era5_only"][t], PAPER["pretrained"][t]
+        ours, era, pre = headline[t], PAPER["era5_only"][t], PAPER["pretrained"][t]
         print(f"windml {t:>5s} @72h  ours={ours:8.2f}  paper_era5_only={era:7.2f} "
               f"({100*(ours-era)/era:+.1f}%)  paper_pretrained={pre:7.2f}", flush=True)
-    print("windml " + "=" * 60, flush=True)
+    if len(models) > 1:
+        print(f"windml ensemble_gain z500 best_member={best['z500']:.2f} -> "
+              f"ensemble={ensemble['z500']:.2f} "
+              f"({100*(ensemble['z500']-best['z500'])/best['z500']:+.1f}%)", flush=True)
+    print("windml " + "=" * 66, flush=True)
 
     (OUT / "rt2021_scores.json").write_text(json.dumps({
-        "rmse_72h": result, "paper": PAPER, "test_years": TEST,
-        "n_inits": int(n), "ckpt_step": ck.get("step"),
-        "ckpt_val": ck.get("val"),
+        "rmse_72h": headline, "members": members,
+        "ensemble": ensemble if len(models) > 1 else None,
+        "n_members": len(models), "paper": PAPER, "test_years": TEST,
+        "n_inits": int(n),
+        "ckpts": [{"file": p.name, "step": c.get("step"), "val": c.get("val"),
+                   "seed": c.get("seed")} for p, c in zip(ckpt_paths, cks)],
         "gate": "z500 near 314 (ERA5-only); 268 needs CMIP6 pretraining",
     }, indent=2))
     print("RESULT OK")
