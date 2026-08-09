@@ -240,13 +240,18 @@ class Member:
     def loss(self, pred, y):
         return (self.latw * (pred - y) ** 2).mean()
 
-    def train_step(self, frames, fut, now):
+    def train_step(self, frames, fut, now, clip=True):
         """Build the graph; execution waits for the caller's single mark_step."""
         x, y = self.assemble(frames, fut, now)
         loss = self.loss(self.model(x), y)
         self.opt.zero_grad(set_to_none=True)
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+        if clip:
+            # Suspected XLA cost centre: clip_grad_norm_ walks every parameter
+            # in Python and emits a norm op per tensor, so ~120 params x 8
+            # members is ~1000 extra nodes per step. The benchmark A/Bs it
+            # rather than assuming either way.
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
         # opt.step(), NOT xm.optimizer_step(): these are independent models, and
         # all-reducing here would quietly collapse the ensemble into one.
         self.opt.step()
@@ -337,6 +342,54 @@ def main():
         frames, fut, now = arrs
         return [f[sl] for f in frames], fut[sl], now[sl]
 
+    def benchmark():
+        """Separate compile cost from steady state, and A/B gradient clipping.
+
+        The first smoke run reported "20 steps in 11 minutes" and that number is
+        useless on its own: XLA compiles lazily, so step 1 pays for the whole
+        program and steps 2..N pay for nothing. Committing 7.5 h of TPU quota on
+        an unseparated average would be guessing. `xm.wait_device_ops()` forces
+        each step to complete so the timings are real rather than enqueue times.
+        """
+        def phase(label, n, clip):
+            times = []
+            for k in range(n):
+                t = time.time()
+                idx = np.concatenate([m.rng.integers(lo, hi_t, BATCH) for m in members])
+                arrs = gather(train, idx)
+                t_gather = time.time() - t
+                for j, m in enumerate(members):
+                    m.train_step(*slice_for(arrs, slice(j * BATCH, (j + 1) * BATCH)),
+                                 clip=clip)
+                xm.mark_step()
+                xm.wait_device_ops()
+                dt = time.time() - t
+                times.append((dt, t_gather))
+                if k == 0:
+                    print(f"windml bench {label} step1={dt:.1f}s "
+                          f"(compile + execute)", flush=True)
+            warm = times[1:] or times
+            tot = sum(d for d, _ in warm) / len(warm)
+            gat = sum(g for _, g in warm) / len(warm)
+            print(f"windml bench {label} clip={clip} steady={tot:.3f}s/step "
+                  f"(gather {gat:.3f}s, device {tot-gat:.3f}s) "
+                  f"-> {len(members)*BATCH/tot:.0f} samples/s", flush=True)
+            return tot
+
+        with_clip = phase("A", 12, True)
+        no_clip = phase("B", 12, False)
+        print(f"windml bench clip_overhead={with_clip - no_clip:+.3f}s/step "
+              f"({100*(with_clip-no_clip)/max(no_clip,1e-9):+.0f}%)", flush=True)
+        t = time.time()
+        validate()
+        print(f"windml bench validate_pass={time.time()-t:.1f}s", flush=True)
+        # extrapolate what a real run would actually get through
+        for label, s in (("with_clip", with_clip), ("no_clip", no_clip)):
+            print(f"windml bench projected_{label}="
+                  f"{7.5*3600/s:.0f} steps in 7.5h "
+                  f"({8*7.5*3600/s*BATCH/1e6:.1f}M samples across 8 members)",
+                  flush=True)
+
     @torch.no_grad()
     def validate():
         """Every member on the same validation batches -- the scores must compare."""
@@ -360,6 +413,14 @@ def main():
         for m in members:
             m.model.train()
         return [t / max(n, 1) for t in tot]
+
+    if SMOKE:
+        # The smoke run's job is no longer "does it start" -- that is answered.
+        # It is now "what does a step actually cost", which decides whether the
+        # full run is worth 7.5 h of quota.
+        benchmark()
+        print("RESULT OK")
+        return
 
     step = 0
     while step < MAX_STEPS and any(not m.done for m in members):
