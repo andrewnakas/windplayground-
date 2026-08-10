@@ -37,8 +37,31 @@ DATASETS = {
         "label": "NOAA GFS (operational physics) — live",
         "id": "gfs_live",
     },
-    # Probed 2026-08-06: ecmwf/ifs, noaa/hrrr and noaa/gefs/forecast all 404;
-    # these three are what the archive actually serves.
+    # Probed 2026-08-10, in answer to "can we add GenCast / GraphCast / Pangu /
+    # FuXi live?". Short answer: no, they do not exist as live public feeds.
+    # ECMWF's open data serves only aifs-ens, aifs-single and ifs; dynamical.org's
+    # catalog carries no ML research models at all. What WeatherBench-2 ships for
+    # those four is 2020 (and 2018 GraphCast) *archives*. Running them live would
+    # mean self-hosting inference against real-time initial conditions -- open
+    # weights exist for GraphCast, Pangu and GenCast, but GenCast is a diffusion
+    # ensemble needing TPU-scale compute per forecast.
+    #
+    # The one live product that would genuinely improve this blend is ECMWF
+    # **IFS ENS** (51 members, the physics ensemble GenCast is benchmarked
+    # against) at ecmwf/ifs-ens/forecast-15-day-0-25-degree/latest.zarr -- it is
+    # reachable and carries wind_u_10m/wind_v_10m. It is left out on measured
+    # cost, not preference. Chunk layout decides everything here:
+    #
+    #     aifs-single  (1, 61, 241, 240)      14 MB x   18 =  0.25 GB /var/init
+    #     gfs          (1, 105, 121, 121)      6 MB x  144 =  0.89 GB /var/init
+    #     ifs-ens      (1, 85, 51, 32, 32)    18 MB x 1035 = 18.38 GB /var/init
+    #
+    # IFS ENS tiles space at 32x32 while packing all 85 leads and all 51 members
+    # into every tile, so a global field costs the entire ensemble even though we
+    # only want the mean at six leads: ~37 GB for u and v against this container's
+    # ~3 GB of disk. AIFS ENS has a catalog page but no zarr at any path probed.
+    #
+    # Earlier probe (2026-08-06): ecmwf/ifs, noaa/hrrr and noaa/gefs/forecast 404.
     "gefs": {
         "url": "https://data.dynamical.org/noaa/gefs/forecast-35-day/latest.zarr",
         "label": "NOAA GEFS 35-day ensemble — live",
