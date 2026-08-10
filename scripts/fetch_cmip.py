@@ -14,12 +14,12 @@ afterwards.
 Sizing, measured (a plain HEAD returns nothing useful, but a Range request's
 Content-Range header carries the total, which is how these were obtained):
 
-    5.625deg   geopotential        43.2 GB
+    5.625deg   geopotential        46.4 GB   (exact, Content-Range)
                temperature         41.8 GB
                specific_humidity   45.0 GB
-               u_component_of_wind 12.0 GB
+               u_component_of_wind 12.8 GB   (exact, Content-Range)
                v_component_of_wind 12.0 GB
-               TOTAL              ~154 GB
+               TOTAL              ~158 GB
 
     2.8125deg  ~4x that, roughly 600 GB -- out of scope for now.
 
@@ -64,7 +64,19 @@ CMIP_VARS = [
 CHUNK = 1 << 20  # 1 MiB
 
 
+# The /download?path=... endpoint 303-redirects to WebDAV. Measured: going
+# straight to the WebDAV URL is ~2x faster (1.5 MB/s against 717 kB/s), because
+# every ranged request otherwise pays a redirect round trip. That matters a lot
+# when a 46 GB archive is fetched in 8 MB pieces.
+DAV = "https://dataserv.ub.tum.de/public.php/dav/files/m1524895"
+
+
 def url_for(var: str, resolution: str) -> str:
+    return f"{DAV}/CMIP/MPI-ESM/{resolution}/{var}/{var}_{resolution}.zip"
+
+
+def legacy_url_for(var: str, resolution: str) -> str:
+    """The redirecting endpoint, kept because it is what the dataset page gives."""
     return (
         f"{BASE}?path=%2FCMIP%2FMPI-ESM%2F{resolution}%2F{var}"
         f"&files={var}_{resolution}.zip"
