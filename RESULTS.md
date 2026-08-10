@@ -107,18 +107,42 @@ the trick this section exists to avoid.
 
 | model | variant | lead | ws RMSE | spec | cf bias |
 |---|---|---|---|---|---|
-| avg4 (mean of 4) | raw | 72 h | 0.793 | 0.860 | -0.0085 |
-| avg4 (mean of 4) | spectral | 72 h | 0.803 | 1.050 | +0.0023 |
-| graphcast_2020 | raw | 72 h | 0.860 | 0.839 | -0.0120 |
-| graphcast_2020 | spectral | 72 h | 0.867 | 1.036 | +0.0004 |
-| hres_2020 | raw | 72 h | 0.992 | 1.007 | +0.0013 |
-| hres_2020 | spectral | 72 h | 0.998 | 1.026 | +0.0037 |
-| avg4 (mean of 4) | raw | 120 h | 1.381 | 0.716 | -0.0213 |
-| avg4 (mean of 4) | spectral | 120 h | 1.414 | 1.123 | +0.0064 |
-| graphcast_2020 | raw | 120 h | 1.472 | 0.781 | -0.0190 |
-| graphcast_2020 | spectral | 120 h | 1.500 | 1.054 | +0.0009 |
-| hres_2020 | raw | 120 h | 1.658 | 0.966 | +0.0002 |
-| hres_2020 | spectral | 120 h | 1.669 | 1.002 | +0.0036 |
+| avg4 (mean of 4) | raw | 24 h | 0.363 | 0.944 | -0.0022 |
+| avg4 (mean of 4) | spectral | 24 h | 0.364 | 0.998 | -0.0001 |
+| graphcast_2020 | raw | 24 h | 0.389 | 0.936 | -0.0040 |
+| graphcast_2020 | spectral | 24 h | 0.388 | 0.999 | -0.0012 |
+| pangu_2020 | raw | 24 h | 0.412 | 0.947 | -0.0020 |
+| pangu_2020 | spectral | 24 h | 0.414 | 0.996 | -0.0002 |
+| gencast_mean_2020 | raw | 24 h | 0.391 | 0.951 | -0.0029 |
+| gencast_mean_2020 | spectral | 24 h | 0.392 | 1.001 | -0.0006 |
+| fuxi_2020 | raw | 24 h | 0.381 | 0.941 | -0.0021 |
+| fuxi_2020 | spectral | 24 h | 0.382 | 0.998 | -0.0001 |
+| hres_2020 | raw | 24 h | 0.499 | 0.996 | +0.0023 |
+| hres_2020 | spectral | 24 h | 0.500 | 0.999 | +0.0018 |
+| avg4 (mean of 4) | raw | 72 h | 0.786 | 0.858 | -0.0088 |
+| avg4 (mean of 4) | spectral | 72 h | 0.789 | 1.012 | -0.0001 |
+| graphcast_2020 | raw | 72 h | 0.855 | 0.840 | -0.0120 |
+| graphcast_2020 | spectral | 72 h | 0.857 | 1.011 | -0.0010 |
+| pangu_2020 | raw | 72 h | 0.901 | 0.920 | -0.0047 |
+| pangu_2020 | spectral | 72 h | 0.913 | 1.009 | +0.0005 |
+| gencast_mean_2020 | raw | 72 h | 0.854 | 0.849 | -0.0086 |
+| gencast_mean_2020 | spectral | 72 h | 0.859 | 1.005 | -0.0005 |
+| fuxi_2020 | raw | 72 h | 0.843 | 0.877 | -0.0069 |
+| fuxi_2020 | spectral | 72 h | 0.852 | 1.004 | +0.0006 |
+| hres_2020 | raw | 72 h | 0.988 | 1.003 | +0.0003 |
+| hres_2020 | spectral | 72 h | 0.992 | 1.019 | +0.0015 |
+| avg4 (mean of 4) | raw | 120 h | 1.376 | 0.713 | -0.0216 |
+| avg4 (mean of 4) | spectral | 120 h | 1.388 | 1.022 | +0.0003 |
+| graphcast_2020 | raw | 120 h | 1.466 | 0.777 | -0.0189 |
+| graphcast_2020 | spectral | 120 h | 1.487 | 1.001 | -0.0017 |
+| pangu_2020 | raw | 120 h | 1.548 | 0.896 | -0.0065 |
+| pangu_2020 | spectral | 120 h | 1.571 | 1.014 | +0.0016 |
+| gencast_mean_2020 | raw | 120 h | 1.465 | 0.663 | -0.0250 |
+| gencast_mean_2020 | spectral | 120 h | 1.470 | 1.011 | -0.0013 |
+| fuxi_2020 | raw | 120 h | 1.452 | 0.817 | -0.0130 |
+| fuxi_2020 | spectral | 120 h | 1.478 | 1.001 | +0.0010 |
+| hres_2020 | raw | 120 h | 1.662 | 0.955 | +0.0002 |
+| hres_2020 | spectral | 120 h | 1.680 | 1.009 | +0.0051 |
 
 HRES is the negative control: it is already sharp, so the
 correction has nothing to restore and makes it worse. A

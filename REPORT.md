@@ -591,21 +591,50 @@ is present but sitting at the wrong scales.
 **The fix is about 30 numbers.** One amplification factor per zonal wavenumber
 per lead, fitted so the forecast's mean power spectrum matches ERA5's, with k=0
 pinned so the field mean is untouched. No network — it can only restore
-amplitude the forecast has misplaced, not invent structure. Fitted on
-January–June 2020 and scored on July–December:
+amplitude the forecast has misplaced, not invent structure. Inits alternate
+between the fit set and the scored set, so both span the whole year, and a
+damping exponent `a(k)**α` is chosen on the fit set alone.
 
 | @120 h | ws RMSE | high-k power | capacity-factor bias |
 |---|---|---|---|
-| GraphCast, raw | 1.472 | 0.781 | −0.0190 |
-| GraphCast, **recalibrated** | 1.500 (+1.9%) | 1.054 | **+0.0009** |
-| `avg4`, raw | 1.381 | 0.716 | −0.0213 |
-| `avg4`, **recalibrated** | 1.414 (+2.4%) | 1.123 | **+0.0064** |
-| HRES, raw | 1.658 | 0.966 | +0.0002 |
-| HRES, recalibrated | 1.669 | 1.002 | +0.0036 *(worse)* |
+| `avg4`, raw | 1.376 | 0.713 | −0.0216 |
+| `avg4`, **recalibrated** | 1.388 (+0.9%) | **1.022** | **+0.0003** |
+| GraphCast, raw | 1.466 | 0.777 | −0.0189 |
+| GraphCast, **recalibrated** | 1.487 (+1.4%) | **1.001** | **−0.0017** |
+| GenCast-mean, raw | 1.465 | 0.663 | −0.0250 |
+| GenCast-mean, **recalibrated** | 1.470 (+0.3%) | **1.011** | **−0.0013** |
+| HRES, raw | 1.662 | 0.955 | +0.0002 |
+| HRES, recalibrated | 1.680 | 1.009 | +0.0051 *(worse)* |
 
-For **+1.9% RMSE, GraphCast's energy bias falls twenty-fold** and lands at
-HRES's level while keeping a 10% RMSE lead over it. Recalibrated `avg4` beats
-raw GraphCast on RMSE *and* on energy bias at the same time.
+**Recalibrated `avg4` beats HRES on RMSE by 16% while matching its energy
+fidelity** (+0.0003 against +0.0002), and beats raw GraphCast on RMSE *and* on
+energy bias simultaneously. GenCast-mean, the blurriest of the set, gets its
+2.5-point capacity-factor bias removed for +0.3% RMSE.
+
+An earlier version of this table fitted on January–June and scored July–December
+and reported +1.9 to +2.4% RMSE with spectra overshooting to 1.05–1.12. Both
+were artefacts of that split: correcting a Northern-Hemisphere winter into a
+summer. Balancing the seasons and damping the exponent made the correction
+**both more accurate and cheaper** — spectra now land within 2% of 1.0 and the
+RMSE cost roughly halved.
+
+The fitted α is worth reading on its own, because it separates two effects that
+the seasonal split had confounded:
+
+| model @120 h | high-k power, raw | α |
+|---|---|---|
+| GenCast-mean | 0.663 | 0.75 |
+| `avg4` | 0.713 | 0.80 |
+| GraphCast | 0.777 | 0.85 |
+| FuXi | 0.817 | 0.90 |
+| Pangu | 0.896 | 1.05 |
+| HRES | 0.955 | 1.25 |
+
+α tracks the deficit almost monotonically. The blurriest forecasts need the raw
+ratio *damped* — so for them the fitted amplification really is optimistic out
+of sample, a genuine generalisation gap and not just the season. The sharpest
+need α above 1, which is the search saying there is nothing to correct. Both
+effects were present; only the seasonal one was visible before.
 
 The HRES row is the reason to believe the rest. HRES is already sharp, so the
 correction has nothing to restore and instead adds noise and *introduces* bias —
@@ -618,14 +647,19 @@ Stated limits:
 - **RMSE always gets worse.** Adding variance back costs squared error by
   construction. Both columns appear in every table here for that reason; quoting
   only the energy metrics would be the trick.
-- The fit/test split is seasonal (Jan–Jun → Jul–Dec), which makes the fitted
-  amplification slightly too strong out of sample — the corrected spectra
-  overshoot to 1.05–1.12 rather than landing at 1.0. Fitting on 2018 would be
-  cleaner; only 2020 competitor forecasts are cached and this container has
-  ~3 GB of disk.
+- **The split is interleaved, not a held-out year.** Fit and scored inits
+  alternate through 2020, so seasons are balanced, but adjacent inits are
+  correlated. That is acceptable *for this estimator specifically* — ~30 numbers
+  describing a climatological spectrum shape cannot memorise individual days —
+  and would not be acceptable for a per-pixel or learned correction. A held-out
+  year is the stronger test; only 2020 competitor forecasts are cached and this
+  container has ~3 GB of disk.
 - This corrects 10 m u/v only, and is evaluated at 5.625°. Whether the same
   deficit holds at 0.25° is untested here — WeatherBench 2's own spectra suggest
   it does, but that is their measurement, not ours.
+- 61 scored inits per lead at a 12-step stride. The numbers moved by under 1%
+  between a 61-init and a 241-init sharpness scan, so the ranking is stable, but
+  these are not 1460-init figures.
 
 The honest summary: **we cannot beat the frontier models at forecasting, and we
 can beat them at describing the wind field.** Those are different claims and
