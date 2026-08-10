@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 import pathlib
 import subprocess
 import sys
@@ -54,7 +55,8 @@ CMIP_VARS = [("geopotential", "z"), ("temperature", "t"),
 
 # The window. MPI-ESM historical starts at 1850; taking the LATEST years keeps
 # the pretraining climate closest to the ERA5 period that follows it.
-YEAR_FROM, YEAR_TO = 1955, 2005
+# Span confirmed by the probe: 1850-2015 in 33 five-year chunks.
+YEAR_FROM, YEAR_TO = 1965, 2015
 SOLAR_CONSTANT = 1361.0
 OUT = pathlib.Path("/kaggle/working")
 
@@ -101,16 +103,23 @@ class HttpRangeFile(io.RawIOBase):
             return b""
         req = urllib.request.Request(self.url)
         req.add_header("Range", f"bytes={self.pos}-{self.pos + n - 1}")
-        for attempt in range(4):
+        # Exponential backoff. The first probe lost a bulk read to
+        # `URLError: [Errno 101] Network is unreachable` and retried three
+        # times within a second, which cannot help a route that is briefly
+        # down -- the directory reads just before it had all succeeded, so this
+        # is transient rather than blocked.
+        for attempt in range(5):
             try:
                 with urllib.request.urlopen(req, timeout=300) as r:
                     data = r.read()
                 break
             except Exception as exc:                     # noqa: BLE001
-                if attempt == 3:
+                if attempt == 4:
                     raise
-                print(f"windml range retry {attempt+1} ({type(exc).__name__})",
-                      flush=True)
+                wait = 5 * 2 ** attempt
+                print(f"windml range retry {attempt+1} in {wait}s "
+                      f"({type(exc).__name__}: {str(exc)[:80]})", flush=True)
+                time.sleep(wait)
         self.pos += len(data)
         return data
 
@@ -131,12 +140,20 @@ def remote_size(url: str) -> int:
 
 
 def member_year(name: str) -> int | None:
-    """Chunks are named <var>_<YYYYMMDD>-<YYYYMMDD>_<res>.nc."""
+    """Start year of a chunk, from names like
+
+        geopotential_185001010600-185501010000_5.625deg.nc
+
+    The timestamps are YYYYMMDDHHMM -- twelve digits, not the eight a note had
+    led me to assume, which is why the first probe parsed 0 of 33 members. Any
+    run of >= 8 leading digits is accepted now so a different stamp width
+    cannot silently produce an empty window again.
+    """
     stem = pathlib.Path(name).stem
     for part in stem.split("_"):
         if "-" in part:
             a = part.split("-")[0]
-            if len(a) == 8 and a.isdigit():
+            if len(a) >= 8 and a.isdigit():
                 return int(a[:4])
     return None
 
