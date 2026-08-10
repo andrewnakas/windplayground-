@@ -94,6 +94,56 @@ def rt2021_section() -> list[str]:
     return out
 
 
+def sharpness_section() -> list[str]:
+    """The realism metrics, and the recalibration that trades RMSE for them.
+
+    Kept out of the RMSE tables on purpose. Every one of those is a squared-error
+    number and the whole point here is that squared error cannot see the defect
+    being measured, so mixing the two columns would bury the finding in the
+    thing it contradicts.
+    """
+    sharp, recal = RESULTS / "sharpness.csv", RESULTS / "spectral_recalibration.csv"
+    if not sharp.exists():
+        return []
+    out = ["", "## Sharpness: what RMSE cannot see", "",
+           "An RMSE-optimal forecast is the conditional mean, so every model",
+           "below is blurred by construction. For wind that matters because",
+           "power goes as v^3. `spec` is the share of high-wavenumber power the",
+           "forecast retains against ERA5 (1.0 = right), and `cf_bias` is the",
+           "capacity-factor error through a turbine power curve.", ""]
+    d = pd.read_csv(sharp)
+    for lead in sorted(d.lead_h.unique()):
+        sub = d[d.lead_h == lead].sort_values("ws_rmse")
+        out += [f"### {lead} h", "",
+                "| model | ws RMSE | var ratio | spec | 95th-pct bias | cf bias |",
+                "|---|---|---|---|---|---|"]
+        for _, r in sub.iterrows():
+            out.append(f"| {r.model} | {r.ws_rmse:.3f} | {r.ws_var_ratio:.3f} "
+                       f"| {r.ws_spec_ratio:.3f} | {r.ws_p95_bias:+.3f} "
+                       f"| {r.cf_bias:+.4f} |")
+        out.append("")
+    out += ["The ordering is close to an inversion of the RMSE ordering: the",
+            "sharpest forecast is the physics model, which is last on RMSE.", ""]
+
+    if recal.exists():
+        r = pd.read_csv(recal)
+        out += ["### Spectral recalibration", "",
+                "One amplification factor per zonal wavenumber per lead, fitted",
+                "on held-out inits. RMSE is shown alongside because sharpening",
+                "always costs it -- reporting only the improved column would be",
+                "the trick this section exists to avoid.", "",
+                "| model | variant | lead | ws RMSE | spec | cf bias |",
+                "|---|---|---|---|---|---|"]
+        for _, x in r.iterrows():
+            out.append(f"| {x.model} | {x.variant} | {x.lead_h} h | "
+                       f"{x.ws_rmse:.3f} | {x.ws_spec_ratio:.3f} | {x.cf_bias:+.4f} |")
+        out += ["", "HRES is the negative control: it is already sharp, so the",
+                "correction has nothing to restore and makes it worse. A",
+                "post-processor that improved every model equally would be a",
+                "metric artefact rather than a physical correction.", ""]
+    return out
+
+
 def load_all(pattern: str = "*_test.csv") -> pd.DataFrame:
     frames = [pd.read_csv(csv) for csv in sorted(RESULTS.glob(pattern))]
     if not frames:
@@ -237,7 +287,7 @@ def main() -> None:
         "The blend rows *are* like-for-like -- they beat those models on their own",
         "published forecasts, at the resolution everything here is scored on.",
         "",
-    ] + rt2021_section()
+    ] + rt2021_section() + sharpness_section()
     for var in HEADLINE_VARS:
         tab = rmse_table(df, var)
         if tab.empty:

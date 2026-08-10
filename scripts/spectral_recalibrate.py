@@ -17,11 +17,16 @@ numbers per lead, no network, nothing that can hallucinate structure -- it can
 only restore amplitude the forecast already misplaced. k=0 is pinned to 1 so the
 field mean is untouched.
 
-Out-of-sample by construction: factors are fitted on the FIRST half of 2020 and
-every number reported comes from the second half. (2018 would be a cleaner
-split still, but only 2020 competitor forecasts are cached and this container
-has ~3 GB of disk, so a temporal split within the year is the honest option
-available rather than a silently in-sample fit.)
+Out-of-sample by construction: factors are fitted on ALTERNATING inits and
+every number reported comes from the ones left out. An earlier version split
+the year in half, which meant fitting on Northern-Hemisphere winter and scoring
+on summer -- a confound, and the likeliest reason the corrected spectra
+overshot to 1.05-1.12. Interleaving gives both sets the whole year. A held-out
+year would be stronger still, but only 2020 competitor forecasts are cached and
+this container has ~3 GB of disk.
+
+The damping exponent alpha is searched on the fit split too, never against the
+numbers being reported.
 
 RMSE is expected to get WORSE -- adding variance back always costs squared
 error. The output table shows both columns for exactly that reason.
@@ -68,6 +73,32 @@ def fit_amplification(pred: np.ndarray, truth: np.ndarray) -> np.ndarray:
     return a
 
 
+def fit_damping(pred, truth, au, av, lat_w, tgt=(0, 1)) -> float:
+    """Choose the exponent in a(k)**alpha, ON THE FIT SPLIT ONLY.
+
+    The first version applied the raw amplification and over-sharpened: corrected
+    spectra landed at 1.05-1.12 instead of 1.0. Two explanations were possible --
+    a seasonal fit/test split, or a genuine generalisation gap where the fitted
+    ratio is optimistic. The split is now season-balanced, so whatever alpha
+    comes out here separates them: near 1.0 means the season was the whole story,
+    below 1.0 means the ratio really is too strong and needs tempering.
+
+    Searched on the FIT inits, never on the scored ones -- tuning it against the
+    numbers being reported is exactly the failure this whole section is written
+    to avoid.
+    """
+    best, best_err = 1.0, float("inf")
+    for alpha in np.arange(0.5, 1.26, 0.05):
+        cu = apply_amplification(pred[:, tgt[0]], au ** alpha)
+        cv = apply_amplification(pred[:, tgt[1]], av ** alpha)
+        r = spectral_ratio(wind_speed(cu, cv),
+                           wind_speed(truth[:, tgt[0]], truth[:, tgt[1]]), lat_w)
+        err = abs(r - 1.0)
+        if err < best_err:
+            best, best_err = float(alpha), err
+    return best
+
+
 def apply_amplification(field: np.ndarray, a: np.ndarray) -> np.ndarray:
     f = np.fft.rfft(field, axis=-1)
     return np.fft.irfft(f * a, n=field.shape[-1], axis=-1)
@@ -109,11 +140,21 @@ def main() -> None:
     rows = []
     for lead in a.leads:
         k = lead // 6
+        # Alternating inits, not halves. The first version fitted on Jan-Jun and
+        # scored Jul-Dec, which meant a Northern-Hemisphere-winter correction was
+        # being applied to summer -- a confound, and the likeliest reason the
+        # corrected spectra overshot. Interleaving gives both sets the whole year.
+        #
+        # Adjacent inits are correlated, so this is a weaker guarantee than a
+        # held-out year. It is defensible here specifically because what is
+        # fitted is ~30 numbers describing a climatological spectrum shape, which
+        # cannot memorise individual days. A per-pixel or learned correction
+        # would need the held-out year and does not get this shortcut.
         inits = np.arange(0, truth.shape[0] - k, a.init_stride)
-        half = len(inits) // 2
-        fit_i, test_i = inits[:half], inits[half:]
+        fit_i, test_i = inits[0::2], inits[1::2]
         print(f"\nwindml lead={lead}h fit_inits={len(fit_i)} test_inits={len(test_i)} "
-              f"(fit = first half of {a.year}, test = second half)", flush=True)
+              f"(alternating inits across all of {a.year}; fit=odd, score=even)",
+              flush=True)
 
         members = {}
         for m in BLEND_MEMBERS + [x for x in a.models if not x.startswith("avg")]:
@@ -146,6 +187,9 @@ def main() -> None:
 
             au = fit_amplification(f_fit[okf][:, U10], t_fit[okf][:, U10])
             av = fit_amplification(f_fit[okf][:, V10], t_fit[okf][:, V10])
+            alpha = fit_damping(f_fit[okf][:, [U10, V10]], t_fit[okf][:, [U10, V10]],
+                                au, av, lat_w)
+            au, av = au ** alpha, av ** alpha
 
             base = score(f_test[ok][:, U10], f_test[ok][:, V10],
                          t_test[ok][:, U10], t_test[ok][:, V10], lat_w)
@@ -155,9 +199,9 @@ def main() -> None:
 
             for tag, s in (("raw", base), ("spectral", corr)):
                 rows.append({"model": label, "variant": tag, "lead_h": lead,
-                             "n_inits": int(ok.sum()),
+                             "n_inits": int(ok.sum()), "alpha": round(alpha, 3),
                              **{kk: round(vv, 5) for kk, vv in s.items()}})
-            print(f"windml {label:24s} @{lead}h", flush=True)
+            print(f"windml {label:24s} @{lead}h alpha={alpha:.2f}", flush=True)
             print(f"windml   raw      rmse={base['ws_rmse']:.3f} "
                   f"spec={base['ws_spec_ratio']:.3f} cf_bias={base['cf_bias']:+.4f} "
                   f"p95={base['ws_p95_bias']:+.3f}", flush=True)

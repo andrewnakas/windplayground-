@@ -53,6 +53,78 @@ Their ERA5-only row is the comparable one -- this model does no
 pretraining. The pretrained column is shown because it is the number
 usually quoted, and it costs ~150 years of CMIP6 data to reach.
 
+
+## Sharpness: what RMSE cannot see
+
+An RMSE-optimal forecast is the conditional mean, so every model
+below is blurred by construction. For wind that matters because
+power goes as v^3. `spec` is the share of high-wavenumber power the
+forecast retains against ERA5 (1.0 = right), and `cf_bias` is the
+capacity-factor error through a turbine power curve.
+
+### 24 h
+
+| model | ws RMSE | var ratio | spec | 95th-pct bias | cf bias |
+|---|---|---|---|---|---|
+| avg4 (mean of 4) | 0.366 | 0.996 | 0.946 | -0.065 | -0.0020 |
+| fuxi_2020 | 0.384 | 0.997 | 0.944 | -0.086 | -0.0019 |
+| graphcast_2020 | 0.390 | 0.996 | 0.938 | -0.088 | -0.0035 |
+| gencast_mean_2020 | 0.393 | 0.995 | 0.951 | -0.082 | -0.0026 |
+| pangu_2020 | 0.416 | 0.996 | 0.949 | -0.068 | -0.0018 |
+| hres_2020 | 0.507 | 1.003 | 0.999 | -0.008 | +0.0022 |
+
+### 72 h
+
+| model | ws RMSE | var ratio | spec | 95th-pct bias | cf bias |
+|---|---|---|---|---|---|
+| avg4 (mean of 4) | 0.798 | 0.962 | 0.853 | -0.537 | -0.0087 |
+| fuxi_2020 | 0.854 | 0.970 | 0.875 | -0.522 | -0.0070 |
+| graphcast_2020 | 0.861 | 0.955 | 0.836 | -0.631 | -0.0118 |
+| gencast_mean_2020 | 0.864 | 0.967 | 0.846 | -0.587 | -0.0083 |
+| pangu_2020 | 0.911 | 0.979 | 0.919 | -0.442 | -0.0043 |
+| hres_2020 | 1.000 | 0.994 | 0.989 | -0.356 | +0.0003 |
+
+### 120 h
+
+| model | ws RMSE | var ratio | spec | 95th-pct bias | cf bias |
+|---|---|---|---|---|---|
+| avg4 (mean of 4) | 1.392 | 0.897 | 0.710 | -1.673 | -0.0221 |
+| fuxi_2020 | 1.473 | 0.940 | 0.819 | -1.427 | -0.0129 |
+| gencast_mean_2020 | 1.478 | 0.885 | 0.659 | -1.943 | -0.0251 |
+| graphcast_2020 | 1.486 | 0.922 | 0.773 | -1.562 | -0.0190 |
+| pangu_2020 | 1.556 | 0.968 | 0.893 | -1.273 | -0.0066 |
+| hres_2020 | 1.670 | 0.991 | 0.958 | -1.270 | -0.0009 |
+
+The ordering is close to an inversion of the RMSE ordering: the
+sharpest forecast is the physics model, which is last on RMSE.
+
+### Spectral recalibration
+
+One amplification factor per zonal wavenumber per lead, fitted
+on held-out inits. RMSE is shown alongside because sharpening
+always costs it -- reporting only the improved column would be
+the trick this section exists to avoid.
+
+| model | variant | lead | ws RMSE | spec | cf bias |
+|---|---|---|---|---|---|
+| avg4 (mean of 4) | raw | 72 h | 0.793 | 0.860 | -0.0085 |
+| avg4 (mean of 4) | spectral | 72 h | 0.803 | 1.050 | +0.0023 |
+| graphcast_2020 | raw | 72 h | 0.860 | 0.839 | -0.0120 |
+| graphcast_2020 | spectral | 72 h | 0.867 | 1.036 | +0.0004 |
+| hres_2020 | raw | 72 h | 0.992 | 1.007 | +0.0013 |
+| hres_2020 | spectral | 72 h | 0.998 | 1.026 | +0.0037 |
+| avg4 (mean of 4) | raw | 120 h | 1.381 | 0.716 | -0.0213 |
+| avg4 (mean of 4) | spectral | 120 h | 1.414 | 1.123 | +0.0064 |
+| graphcast_2020 | raw | 120 h | 1.472 | 0.781 | -0.0190 |
+| graphcast_2020 | spectral | 120 h | 1.500 | 1.054 | +0.0009 |
+| hres_2020 | raw | 120 h | 1.658 | 0.966 | +0.0002 |
+| hres_2020 | spectral | 120 h | 1.669 | 1.002 | +0.0036 |
+
+HRES is the negative control: it is already sharp, so the
+correction has nothing to restore and makes it worse. A
+post-processor that improved every model equally would be a
+metric artefact rather than a physical correction.
+
 ## u10 — RMSE (m/s) at 24/72/120 h
 
 | model                      |      24 |      72 |     120 |
