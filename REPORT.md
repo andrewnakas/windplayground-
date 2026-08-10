@@ -425,6 +425,33 @@ So: the recreation reaches and slightly exceeds the published ERA5-only model. T
 remaining 306.7 → 268 step is CMIP6 pretraining, which is now the one lever the paper
 used that this project has not.
 
+#### At 5 days the same recipe misses on z500 — and the paper predicts why
+
+Training a second model at the paper's 120 h lead (identical recipe, `DIRECT_STEPS=20`)
+gives a **split result**:
+
+| variable @120 h | ours | R&T ERA5-only | vs | R&T CMIP6-pretrained |
+|---|---|---|---|---|
+| z500 (m²/s²) | 593.0 | **561** | **+5.7% — missed** | 523 |
+| t850 (K) | **2.55** | 2.82 | −9.6% | 2.52 |
+| t2m (K) | **1.90** | 2.32 | −18.3% | 2.03 |
+
+Two variables clear the anchor; geopotential does not. This is not a truncated run: it
+**early-stopped at 58,000 steps** with both LR drops taken, best validation at step
+40,000, and a clear train/validation gap by the end (0.196 against 0.249).
+
+That gap is the explanation, and it is the paper's own. Section 3 of arXiv 2008.08626v2
+argues that overfitting worsens with lead time — a longer horizon means a wider
+distribution of plausible outcomes, so estimating its mean needs more data — and that
+this is precisely why CMIP6 pretraining helps most at long leads. Their own numbers show
+it: pretraining buys 314 → 268 at 3 days (−15%) but 561 → 523 at 5 days on a base that
+is already much harder.
+
+So the 5-day miss is evidence *for* the pretraining step rather than against the
+reproduction: we reproduced the recipe faithfully enough to reproduce its weakness. It
+also lines up with the independent finding above that direct-lead prediction loses to
+rollout fine-tuning at 120 h while winning at 72 h.
+
 #### The 8-seed TPU ensemble: attempted, not delivered
 
 The plan was to train one model per chip on Kaggle's TPU — eight seeds for the wall-clock

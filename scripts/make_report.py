@@ -58,10 +58,15 @@ def rt2021_section() -> list[str]:
     the paper's. Putting them in one table would invite exactly the comparison
     that is invalid.
     """
-    path = RESULTS / "rt2021_72h_scores.json"
-    if not path.exists():
+    paths = sorted(RESULTS.glob("rt2021_*_scores.json"))
+    if not paths:
         return []
-    data = json.loads(path.read_text())
+    # one file per lead, each already grouped by lead inside; merge so the
+    # section grows as leads land rather than needing an edit per run
+    entries = []
+    for path in paths:
+        entries += json.loads(path.read_text()).get("by_lead", [])
+    data = {"by_lead": sorted(entries, key=lambda e: e["lead_h"])}
     out = ["", "## The Rasp & Thuerey 2021 recreation (scored on 2017-2018)", "",
            "Separate from every table below, which is scored on 2020. This model",
            "is scored on the paper's own test years so the comparison is",

@@ -41,6 +41,14 @@ like-for-like: same 64x32 grid, same latitude-weighted RMSE.
 | t850 | **1.53** | 1.79 | -14.3% | 1.65 |
 | t2m | **1.21** | 1.53 | -21.1% | 1.42 |
 
+### 120 h lead (single model, 2898 inits)
+
+| variable | ours | R&T ERA5-only | vs | R&T CMIP6-pretrained |
+|---|---|---|---|---|
+| z500 | **593.00** | 561.0 | +5.7% | 523.0 |
+| t850 | **2.55** | 2.82 | -9.6% | 2.52 |
+| t2m | **1.90** | 2.32 | -18.3% | 2.03 |
+
 Their ERA5-only row is the comparable one -- this model does no
 pretraining. The pretrained column is shown because it is the number
 usually quoted, and it costs ~150 years of CMIP6 data to reach.
