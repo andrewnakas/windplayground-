@@ -63,6 +63,18 @@ KERNELS: dict[str, dict] = {
     # so it can prove the 8-core plumbing before any quota goes on a real run.
     # The paper trains a separate direct model per lead. One source, one env
     # var; the checkpoint is named by lead so the eval kernel can group them.
+    # Probes the CMIP archives' actual vertical levels before any long
+    # conversion. u/v are 12 GB against z/T/q's 42-45 GB over the same span and
+    # grid, which most likely means fewer levels -- and if any of the paper's 7
+    # is missing, the 111-channel layout is wrong and hours of prep would be
+    # wasted producing a stack that cannot feed the model.
+    "prep_cmip": {
+        "title": "windml prep cmip",
+        "source": "prep_cmip.py",
+        "gpu": False,
+        "internet": True,
+        "note": "CMIP6 level probe -> the 314->268 pretraining stack",
+    },
     "train_rt2021_120h": {
         "title": "windml train rt2021 120h",
         "source": "train_rt2021.py",
