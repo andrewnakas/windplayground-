@@ -64,6 +64,16 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: Blend the live members
+        run: |
+          # Deliberately NOT `|| true`. The blend refuses to average members
+          # from different init times, and that refusal is the point: if one
+          # fetch above failed, its previous-cycle file is still on disk and
+          # looks valid. A failure here means "the members disagree", which
+          # should be visible in the run, not swallowed. The previous blend
+          # JSON stays in place either way, so the site keeps working.
+          python scripts/blend_live.py
+
       - name: Rebuild site
         run: python scripts/build_site.py
 

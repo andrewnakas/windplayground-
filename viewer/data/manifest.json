@@ -461,6 +461,27 @@
         120
       ],
       "init_time": "2026-08-10T12:00:00Z"
+    },
+    {
+      "id": "live_blend",
+      "label": "Live multi-model mean (ECMWF AIFS + NOAA GFS)",
+      "kind": "live",
+      "inits": [
+        "latest"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ],
+      "init_time": "2026-08-10T12:00:00Z",
+      "members": [
+        "aifs_live",
+        "gfs_live"
+      ]
     }
   ],
   "grid": {
