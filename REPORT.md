@@ -452,6 +452,48 @@ reproduction: we reproduced the recipe faithfully enough to reproduce its weakne
 also lines up with the independent finding above that direct-lead prediction loses to
 rollout fine-tuning at 120 h while winning at 72 h.
 
+#### CMIP6 pretraining: design confirmed, blocked on bandwidth
+
+The 306.7 → 268 step needs the pretraining the paper does, and the open question
+was never the model — `src/windml/models/grow.py` already grows the stem 111→117
+and the head 2→3 with zeros so the transfer is exact at step 0. It was whether
+the archive actually carries the levels the design assumes. z/T/q are 46.4, 41.8
+and 45.0 GB against u/v's 12.8 and 12.0 at identical span and grid, and that 3.6×
+ratio had never been explained.
+
+**It is now, and the design survives.** Reading one u-wind chunk directly:
+
+    dims: {time: 7304, plev: 7, lat: 32, lon: 64}
+    plev: [925, 850, 700, 600, 500, 250, 50]
+
+Exactly the paper's seven, no more. And the ratio follows: u/v are 1.83 GB per
+level, so geopotential's 46.4 GB implies ~25 levels. z/T/q are archived on a
+full profile and we need 7 of it — meaning ~3.6× of the z/T/q bytes are
+downloaded and discarded, with no way to sub-select inside a zip.
+
+What blocks it is bandwidth, measured rather than assumed:
+
+| path | throughput | 48 GB window |
+|---|---|---|
+| Kaggle kernel → TUM | **< 70 kB/s** | impossible inside a 12 h session |
+| this container → TUM, via the 303 redirect | 717 kB/s | ~19 h |
+| this container → TUM, direct WebDAV | 1.5 MB/s | ~9 h |
+
+Two findings worth keeping: the dataset's `/download?path=…` endpoint 303-redirects
+to WebDAV, and going straight there doubles throughput because a chunked fetch
+otherwise pays a redirect per request. And Kaggle's egress to this host is ~20×
+slower than this container's, which is what killed four probe attempts.
+
+So CMIP prep belongs on the GTX 1080 box — which has the disk and no session cap,
+and is exactly where the original plan put it before this detour. This container
+cannot host it either: ~3 GB free against an ~11 GB output. `scripts/fetch_cmip.py`
+now uses the WebDAV URL and carries the corrected sizes; `kaggle/prep_cmip.py` has
+the working Range-over-zip reader, which is the reusable part.
+
+Status, plainly: **pretraining is designed, its one open assumption is verified,
+and it is not run.** The 268 figure remains unreproduced, and the reason is
+bandwidth to a single archive rather than anything about the model.
+
 #### The 8-seed TPU ensemble: attempted, not delivered
 
 The plan was to train one model per chip on Kaggle's TPU — eight seeds for the wall-clock
