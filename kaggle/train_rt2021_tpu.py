@@ -622,9 +622,24 @@ def main():
         live = [m for m in members if not m.done]
         idx = np.concatenate([m.rng.integers(lo, hi_t, BATCH) for m in live])
         arrs = gather(train, idx)
-        losses = [m.train_step(*slice_for(arrs, slice(k * BATCH, (k + 1) * BATCH)),
-                               clip=CLIP_GRAD)
-                  for k, m in enumerate(live)]
+        # Sync after EACH member on the first step, then batch all eight from
+        # then on. Three runs died on the first input transfer claiming a few
+        # MB free while the device reported 0.026 GB used of 16.91 GB, and
+        # kaggle/tpu_memdiag.py does the identical work without failing -- the
+        # one structural difference is that its loop calls get_memory_info at
+        # members 0 and 7 during step 0, which forces a flush. Building eight
+        # members' graphs back to back leaves eight input buffers and eight
+        # pending activation trees live at once before the single mark_step.
+        # Draining on the warmup step costs nothing in steady state; doing it
+        # every step would serialise the chips and cost ~8x.
+        losses = []
+        for k, m in enumerate(live):
+            losses.append(m.train_step(
+                *slice_for(arrs, slice(k * BATCH, (k + 1) * BATCH)),
+                clip=CLIP_GRAD))
+            if step == 0:
+                xm.mark_step()
+                xm.wait_device_ops()
         xm.mark_step()          # execute all members' graphs together
         step += 1
 

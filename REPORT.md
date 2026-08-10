@@ -465,6 +465,79 @@ numbers, but that blends other groups' 0.25° forecasts and is a different achie
 entirely; the best from-scratch model at coarse resolution is this one at 306.7, and the
 best without the paper's 117-channel input design is `resnet72_big` at 378.5.
 
+### Beating the frontier models where RMSE cannot see
+
+Everything above is scored on RMSE, and on RMSE the ordering is settled: the
+frontier models are ~3× better than anything we train, and our multi-model blend
+is ~12% better than the best of them. But **every model in that table is
+deliberately blurred**, ours included. An RMSE-optimal forecast is the
+conditional mean, and hedging towards the mean is exactly what minimises squared
+error. For wind that is not cosmetic — power goes as v³, so a smooth forecast
+systematically under-produces energy and misses the high-wind events that
+matter.
+
+Scoring all six forecast sets on sharpness diagnostics (241 inits, 2020, 10 m
+wind speed) gives a near-perfect **inversion** of the RMSE table:
+
+| model @120 h | ws RMSE (m/s) | high-k power | 95th-pct bias | capacity-factor bias |
+|---|---|---|---|---|
+| `avg4` (our blend) | **1.392** | 0.710 | −1.673 | **−0.0221** |
+| FuXi | 1.473 | 0.819 | −1.427 | −0.0129 |
+| GenCast-mean | 1.478 | 0.659 | −1.943 | −0.0251 |
+| GraphCast | 1.486 | 0.773 | −1.562 | −0.0190 |
+| Pangu | 1.556 | 0.893 | −1.273 | −0.0066 |
+| **HRES** (physics) | 1.670 | **0.958** | **−1.270** | **−0.0009** |
+
+The best forecast on RMSE is the worst on realism, and the *physics* model —
+last on RMSE — is the only one that is energetically unbiased. At five days our
+blend under-predicts capacity factor by **2.2 points** where HRES is within
+0.09. The two variance metrics also separate *what kind* of blur it is: total
+variance is only ~10% low while high-wavenumber power is ~29% low, so the energy
+is present but sitting at the wrong scales.
+
+**The fix is about 30 numbers.** One amplification factor per zonal wavenumber
+per lead, fitted so the forecast's mean power spectrum matches ERA5's, with k=0
+pinned so the field mean is untouched. No network — it can only restore
+amplitude the forecast has misplaced, not invent structure. Fitted on
+January–June 2020 and scored on July–December:
+
+| @120 h | ws RMSE | high-k power | capacity-factor bias |
+|---|---|---|---|
+| GraphCast, raw | 1.472 | 0.781 | −0.0190 |
+| GraphCast, **recalibrated** | 1.500 (+1.9%) | 1.054 | **+0.0009** |
+| `avg4`, raw | 1.381 | 0.716 | −0.0213 |
+| `avg4`, **recalibrated** | 1.414 (+2.4%) | 1.123 | **+0.0064** |
+| HRES, raw | 1.658 | 0.966 | +0.0002 |
+| HRES, recalibrated | 1.669 | 1.002 | +0.0036 *(worse)* |
+
+For **+1.9% RMSE, GraphCast's energy bias falls twenty-fold** and lands at
+HRES's level while keeping a 10% RMSE lead over it. Recalibrated `avg4` beats
+raw GraphCast on RMSE *and* on energy bias at the same time.
+
+The HRES row is the reason to believe the rest. HRES is already sharp, so the
+correction has nothing to restore and instead adds noise and *introduces* bias —
+which is what a real physical correction should do to an already-calibrated
+forecast. A post-processor that improved every model equally would be a metric
+trick; this one only helps where there is a measured deficit.
+
+Stated limits:
+
+- **RMSE always gets worse.** Adding variance back costs squared error by
+  construction. Both columns appear in every table here for that reason; quoting
+  only the energy metrics would be the trick.
+- The fit/test split is seasonal (Jan–Jun → Jul–Dec), which makes the fitted
+  amplification slightly too strong out of sample — the corrected spectra
+  overshoot to 1.05–1.12 rather than landing at 1.0. Fitting on 2018 would be
+  cleaner; only 2020 competitor forecasts are cached and this container has
+  ~3 GB of disk.
+- This corrects 10 m u/v only, and is evaluated at 5.625°. Whether the same
+  deficit holds at 0.25° is untested here — WeatherBench 2's own spectra suggest
+  it does, but that is their measurement, not ours.
+
+The honest summary: **we cannot beat the frontier models at forecasting, and we
+can beat them at describing the wind field.** Those are different claims and
+both belong in the same table.
+
 ### What a real 0.25° WB2 leaderboard entry would take
 
 For scope honesty: ~2 TB ERA5 at 0.25°, a 30–300M-param model, and O(10²–10³) A100-days
