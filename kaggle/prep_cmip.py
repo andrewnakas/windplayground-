@@ -166,15 +166,31 @@ def toa_solar(times, lat, lon) -> np.ndarray:
 
 
 def open_members(var: str) -> tuple[zipfile.ZipFile, list[str]]:
+    """Members inside the year window, after REPORTING what the archive holds.
+
+    The first run of this probe filtered to 1955-2005 and found nothing, then
+    said so without saying what it had rejected -- which is a useless error. The
+    member naming was an assumption carried over from a note about
+    `geopotential_18500101-18550101_5.625deg.nc`, and assumptions about naming
+    are exactly what a probe exists to replace with observation.
+    """
     url = url_for(var)
     zf = zipfile.ZipFile(HttpRangeFile(url, remote_size(url)))
-    wanted = []
-    for n in zf.namelist():
-        if not n.endswith(".nc"):
-            continue
-        y = member_year(n)
-        if y is not None and YEAR_FROM <= y <= YEAR_TO:
-            wanted.append(n)
+    allnames = [n for n in zf.namelist() if n.endswith(".nc")]
+    print(f"windml {var} members={len(allnames)} "
+          f"first={allnames[:2]} last={allnames[-2:]}", flush=True)
+    years = {n: member_year(n) for n in allnames}
+    parsed = [y for y in years.values() if y is not None]
+    print(f"windml {var} parsed_years={len(parsed)}/{len(allnames)} "
+          f"span={(min(parsed), max(parsed)) if parsed else None}", flush=True)
+    wanted = [n for n, y in years.items() if y is not None and YEAR_FROM <= y <= YEAR_TO]
+    if not wanted and allnames:
+        # take the newest chunks rather than failing: the window is a budget
+        # choice, not a requirement, and the archive's real span is now known
+        keep = max(1, min(len(allnames), (YEAR_TO - YEAR_FROM) // 5))
+        wanted = sorted(allnames)[-keep:]
+        print(f"windml {var} window empty -- falling back to the newest "
+              f"{len(wanted)} chunks", flush=True)
     return zf, sorted(wanted)
 
 

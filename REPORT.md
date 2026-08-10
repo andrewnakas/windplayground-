@@ -477,11 +477,35 @@ per-device readout — added precisely to settle it — shows all eight chips at
 crowding one chip, which is what I had assumed.
 
 That leaves a contradiction I did not resolve: `xm.get_memory_info` reports ~16.9 GB free
-on the device the allocator says has 5 MB. The transfers evidently stage through a pool
-that the device memory info does not describe, and the free figure barely moves with
-batch size. Rather than keep spending an expiring quota on guesses, this is recorded as
-an open engineering problem. It costs the ensemble result, not the reproduction — the
-306.7 above is a GPU number and is unaffected.
+on the device the allocator says has 5 MB.
+
+**Five hypotheses were tested and all five were wrong.** Recording them because the
+elimination is the only durable thing this produced:
+
+| hypothesis | how it died |
+|---|---|
+| batch size too large | halving it recovered only the input block's own shrinkage; 32 failed too |
+| members crowding one chip | instrumented run: all 8 chips at 0.026 GB used of a 16.91 GB limit |
+| host RAM exhausted | the VM has 396 GB and 384 GB was free at the moment of failure |
+| the real data path | `kaggle/tpu_memdiag.py` ran {synthetic, real} × {1, 8 devices} and **all four passed**, including the exact configuration that fails here |
+| pending-graph pile-up | syncing after each member could not even be reached — the failure is inside the *first* member's first transfer, with nothing yet accumulated |
+
+The last one is worth flagging as a process error rather than just a wrong guess: the fix
+I wrote placed the sync *after* `train_step`, while the failure happens *inside* it, so
+that run could never have tested the hypothesis it was built for. I noticed only when the
+error came back byte-identical.
+
+The state at failure is the whole puzzle: device 0.026 GB used of 16.91 GB, host 384 GB
+free, and a 32 MB allocation refused with "4.99M free" — on the first host→device
+transfer of the run, from a script that a near-identical standalone diagnostic performs
+successfully on the same hardware. That is a torch_xla/Kaggle interaction, not a capacity
+problem, and finding it needs a line-by-line bisection against the working diagnostic
+rather than more remote guesses.
+
+Capped at six runs and stopped. It costs the ensemble result, not the reproduction — the
+306.7 above is a GPU number and is unaffected. One consolation: the last attempt reverted
+to the paper's batch 32 and LR 5e-5 with no clipping, so whenever this is picked up the
+members will be recipe-faithful rather than a scaled-up variant.
 
 One consolation from the last attempt: reverting to the paper's batch 32 and LR 5e-5
 removed every deviation the larger-batch plan had introduced, so whenever this is fixed
