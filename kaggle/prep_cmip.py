@@ -95,12 +95,32 @@ class HttpRangeFile(io.RawIOBase):
     def readable(self):
         return True
 
+    # One HTTP request per 8 MB, never per member. The first two probes asked
+    # for a whole 1.3 GB member in a single ranged GET: that needs >4 MB/s
+    # sustained for 300 s against a server measured at 6-28 MB/s, so it timed
+    # out, and every retry then failed with "Network is unreachable" -- the
+    # transfer was the problem, not the route. Small reads have never failed
+    # here; the central directory always came back fine.
+    CHUNK = 8 << 20
+
     def read(self, n=-1):
         if n is None or n < 0:
             n = self.size - self.pos
         n = min(n, self.size - self.pos)
         if n <= 0:
             return b""
+        if n > self.CHUNK:
+            parts = []
+            while n > 0:
+                b = self._read_once(min(n, self.CHUNK))
+                if not b:
+                    break
+                parts.append(b)
+                n -= len(b)
+            return b"".join(parts)
+        return self._read_once(n)
+
+    def _read_once(self, n):
         req = urllib.request.Request(self.url)
         req.add_header("Range", f"bytes={self.pos}-{self.pos + n - 1}")
         # Exponential backoff. The first probe lost a bulk read to
@@ -110,7 +130,7 @@ class HttpRangeFile(io.RawIOBase):
         # is transient rather than blocked.
         for attempt in range(5):
             try:
-                with urllib.request.urlopen(req, timeout=300) as r:
+                with urllib.request.urlopen(req, timeout=120) as r:
                     data = r.read()
                 break
             except Exception as exc:                     # noqa: BLE001
