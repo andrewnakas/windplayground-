@@ -93,6 +93,39 @@ Pascal note (GTX 10-series): install a torch build that still ships `sm_61` kern
 device-agnostic (`--device auto|cpu|cuda`) and fp32 by default, since Pascal has no fast
 half-precision path.
 
+## Live forecasts, and adding WeatherNext
+
+The viewer carries a **live multi-model mean** alongside its members: ECMWF AIFS
+(operational ML) and NOAA GFS (operational physics), refreshed every 6 h by
+[`.github/workflows/live-wind.yml`](.github/workflows/live-wind.yml) and averaged by
+`scripts/blend_live.py`. That pairing is deliberate — the sharpness results in REPORT.md
+show ML models are blurred at long leads and physics models are not, so one of each is
+the complementary combination.
+
+`blend_live.py` refuses to average members whose init times differ. Filenames are stable
+and overwritten in place, so a failed fetch leaves a valid-looking file behind, and
+averaging two different cycles is not an ensemble.
+
+GenCast, GraphCast, Pangu and FuXi are **not** available live — WeatherBench-2 ships
+their 2020 archives, not an operational feed (probed; see the note in
+`scripts/fetch_dynamical.py`). If you have **Google WeatherNext** access, that is the
+frontier-grade member this blend is otherwise missing, and you can add it from your own
+machine with no key handling at all:
+
+```bash
+gcloud auth application-default login
+pip install google-cloud-bigquery
+python scripts/wn_export_local.py --probe  --project YOUR_PROJECT   # schema, free
+python scripts/wn_export_local.py --export --project YOUR_PROJECT --table PROJ.DS.TABLE
+git add viewer/data && git commit -m "weathernext live" && git push
+```
+
+It uses your existing Application Default Credentials, dry-runs every query and refuses
+anything over `--max-gb` (your project is the one billed), aggregates to the 180×90 grid
+*inside* BigQuery so only ~0.1 MB per lead comes back, and prints the column mapping it
+inferred rather than guessing silently. `scripts/fetch_weathernext.py` is the same job
+for a container that has credentials in the environment instead.
+
 ## Honest scope
 
 Our from-scratch models train on 4 CPU cores at 5.625°; GraphCast et al. train at 0.25°
