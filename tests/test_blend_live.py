@@ -92,3 +92,26 @@ def test_blend_keeps_the_component_ordering(workspace):
     out = json.loads((workspace / "live_blend_latest_072.json").read_text())
     assert out[0]["header"]["parameterNumber"] == 2 and out[0]["data"] == [6.0, 6.0]
     assert out[1]["header"]["parameterNumber"] == 3 and out[1]["data"] == [-6.0, -6.0]
+
+
+# --- stale against the CLOCK, not against each other ------------------------
+#
+# Every guard above compares members to one another, and for twelve days that
+# was not enough: the 6-hourly refresh workflow stopped firing, so each cycle
+# re-blended the same untouched files. They agreed with each other perfectly and
+# passed every check, because nothing compared them to the time of day.
+
+def test_age_is_measured_from_the_init_time():
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    six_ago = (now - timedelta(hours=6)).strftime("%Y-%m-%dT%H:00:00Z")
+    age = bl.age_hours(six_ago)
+    assert 5.0 < age < 7.0, age          # within the hour truncation
+
+
+def test_a_future_init_is_negative_not_stale():
+    """Clock skew must not read as staleness -- it is a different problem."""
+    from datetime import datetime, timedelta, timezone
+    ahead = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ")
+    assert bl.age_hours(ahead) < 0

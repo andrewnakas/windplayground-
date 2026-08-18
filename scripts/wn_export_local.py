@@ -137,7 +137,7 @@ def principal_of(creds, bq=None) -> str:
                 dry_run=True, use_query_cache=False))
             if job.user_email:
                 return job.user_email
-        except Exception:
+        except Exception:      # noqa: S110 -- identity is a nicety, never a gate
             pass
     return "unknown (user ADC carries no email; try `gcloud auth list`)"
 
@@ -350,7 +350,7 @@ def main() -> None:
                      f"Re-run with --force if that is acceptable; it bills "
                      f"your project.")
 
-        rows = guarded(lambda: list(bq.query(sql).result()),
+        rows = guarded(lambda sql=sql: list(bq.query(sql).result()),
                        principal, impersonating)
         u = [math.nan] * (NX * NY)
         v = [math.nan] * (NX * NY)

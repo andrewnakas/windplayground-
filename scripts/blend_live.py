@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 OUT_DIR = Path("viewer/data")
@@ -94,12 +95,27 @@ def blend_lead(members: list[str], lead: int) -> str | None:
     return ref
 
 
+def age_hours(ref_time: str) -> float:
+    """Hours between a member's init and now, both UTC."""
+    t = datetime.strptime(ref_time.replace("Z", ""), "%Y-%m-%dT%H:%M:%S")
+    return (datetime.now(timezone.utc).replace(tzinfo=None) - t).total_seconds() / 3600.0
+
+
 def main() -> None:
     global OUT_DIR
     p = argparse.ArgumentParser()
     p.add_argument("--members", nargs="+", default=None,
                    help="source ids to average; default = every live source")
     p.add_argument("--out", default=str(OUT_DIR))
+    # The failure this exists for: the 6-hourly refresh workflow stopped firing
+    # and nobody noticed for twelve days. Every guard in this file compares
+    # members to EACH OTHER, so a refresh that fetches nothing leaves a set of
+    # mutually consistent, equally stale files and passes every check. Nothing
+    # anywhere compared the data to the clock. 18 h is a little over two missed
+    # 6-hourly cycles -- late enough not to trip on a single upstream hiccup,
+    # early enough that a stopped schedule shows up the same day.
+    p.add_argument("--max-age-h", type=float, default=18.0,
+                   help="fail if the members' init is older than this; 0 disables")
     a = p.parse_args()
     OUT_DIR = Path(a.out)
     man_path = OUT_DIR / "manifest.json"
@@ -135,6 +151,20 @@ def main() -> None:
     man["sources"] = [s for s in man["sources"] if s["id"] != BLEND_ID] + [entry]
     man_path.write_text(json.dumps(man, indent=2))
     print(f"windml blended leads={done} init={ref} -> {BLEND_ID}")
+
+    if a.max_age_h > 0 and ref:
+        age = age_hours(ref)
+        print(f"windml init age = {age:.1f} h")
+        if age > a.max_age_h:
+            raise SystemExit(
+                f"STALE: the newest init every live member carries is {ref}, "
+                f"{age:.1f} h old (limit {a.max_age_h:.0f} h).\n"
+                f"The blend itself is fine -- the members agree -- so this is "
+                f"not a data error, it is the refresh not having happened. "
+                f"Check that .github/workflows/live-wind.yml is still being "
+                f"scheduled, and that dynamical.org's latest.zarr has moved.\n"
+                f"The JSON written above is valid and the site will still "
+                f"build; pass --max-age-h 0 to publish it deliberately.")
 
 
 if __name__ == "__main__":

@@ -131,7 +131,7 @@ def principal_of(creds, bq=None) -> str:
                 dry_run=True, use_query_cache=False))
             if job.user_email:
                 return job.user_email
-        except Exception:
+        except Exception:      # noqa: S110 -- identity is a nicety, never a gate
             pass
     return "unknown (user ADC carries no email; try `gcloud auth list`)"
 
