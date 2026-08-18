@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import pathlib
 
 import numpy as np
 
@@ -51,11 +52,13 @@ from windml.eval.metrics import (
     spectral_ratio,
     variance_ratio,
     wind_speed,
+    zonal_power_spectrum,
 )
 from windml.utils.grid import latitude_weights
 
 U10, V10 = CHANNELS.index("u10"), CHANNELS.index("v10")
 OUT = ARTIFACTS / "results" / "spectral_recalibration.csv"
+SPECTRA = ARTIFACTS / "results" / "spectra.npz"
 BLEND_MEMBERS = ["graphcast_2020", "pangu_2020", "hres_2020", "gencast_mean_2020"]
 
 
@@ -131,6 +134,12 @@ def main() -> None:
     p.add_argument("--leads", nargs="+", type=int, default=[72, 120])
     p.add_argument("--init-stride", type=int, default=6)
     p.add_argument("--year", type=int, default=2020)
+    p.add_argument("--spectra-out", default=str(SPECTRA),
+                   help="per-wavenumber power for the figure; the ratios in the "
+                        "table are one number each, and the result is about shape")
+    p.add_argument("--no-csv", action="store_true",
+                   help="skip rewriting the table -- use when running a SUBSET of "
+                        "models/leads, so a partial run cannot truncate the full one")
     a = p.parse_args()
 
     cfg = DataConfig()
@@ -138,6 +147,7 @@ def main() -> None:
     truth = np.asarray(load_years(cfg, [a.year]), dtype=np.float32)
 
     rows = []
+    spectra = {}
     for lead in a.leads:
         k = lead // 6
         # Alternating inits, not halves. The first version fitted on Jan-Jun and
@@ -197,6 +207,16 @@ def main() -> None:
                          apply_amplification(f_test[ok][:, V10], av),
                          t_test[ok][:, U10], t_test[ok][:, V10], lat_w)
 
+            # The same corrected fields the table scores, kept as spectra so
+            # the figure and the ratio column cannot disagree.
+            ws_t = wind_speed(t_test[ok][:, U10], t_test[ok][:, V10])
+            ws_raw = wind_speed(f_test[ok][:, U10], f_test[ok][:, V10])
+            ws_corr = wind_speed(apply_amplification(f_test[ok][:, U10], au),
+                                 apply_amplification(f_test[ok][:, V10], av))
+            spectra[f"truth|{lead}"] = zonal_power_spectrum(ws_t, lat_w)
+            spectra[f"{label}|{lead}|raw"] = zonal_power_spectrum(ws_raw, lat_w)
+            spectra[f"{label}|{lead}|spectral"] = zonal_power_spectrum(ws_corr, lat_w)
+
             for tag, s in (("raw", base), ("spectral", corr)):
                 rows.append({"model": label, "variant": tag, "lead_h": lead,
                              "n_inits": int(ok.sum()), "alpha": round(alpha, 3),
@@ -214,12 +234,22 @@ def main() -> None:
 
     if not rows:
         raise SystemExit("nothing scored")
+
+    if a.spectra_out:
+        sp = pathlib.Path(a.spectra_out)
+        sp.parent.mkdir(parents=True, exist_ok=True)
+        np.savez(sp, **spectra)
+        print(f"\nwrote {sp} ({len(spectra)} spectra)")
+
+    if a.no_csv:
+        print(f"--no-csv: leaving {OUT} alone (this was a subset run)")
+        return
     OUT.parent.mkdir(parents=True, exist_ok=True)
     with open(OUT, "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0]))
         w.writeheader()
         w.writerows(rows)
-    print(f"\nwrote {OUT} ({len(rows)} rows)")
+    print(f"wrote {OUT} ({len(rows)} rows)")
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
 from windml.config import ARTIFACTS, REPO_ROOT
@@ -253,6 +254,55 @@ def frontier_figure(df: pd.DataFrame, out: Path) -> None:
     plt.close(fig)
 
 
+def spectrum_figure(out: Path, lead: int = 120,
+                    model: str = "graphcast_2020") -> bool:
+    """The sharpness result is about SHAPE; a ratio column shows that badly.
+
+    Two panels: power against zonal wavenumber (log), and the same divided by
+    ERA5 so the deficit reads directly off a line at 1.0. Written from
+    `spectra.npz`, which `scripts/spectral_recalibrate.py` dumps from the very
+    arrays it scores, so the figure and the ws_spec_ratio column cannot drift
+    apart.
+    """
+    path = RESULTS / "spectra.npz"
+    if not path.exists():
+        return False
+    z = np.load(path)
+    need = [f"truth|{lead}", f"{model}|{lead}|raw", f"{model}|{lead}|spectral"]
+    if not all(k in z for k in need):
+        return False
+    truth, raw, corr = (z[k] for k in need)
+    k = np.arange(len(truth))
+
+    fig, (ax, bx) = plt.subplots(1, 2, figsize=(10.5, 4.2))
+    for y, lab, kw in (
+        (truth, "ERA5 (truth)", {"color": "0.2", "lw": 2.0}),
+        (raw, f"{model} raw", {"color": "tab:blue", "lw": 1.5}),
+        (corr, f"{model} spectrally recalibrated", {"color": "tab:red", "lw": 1.5}),
+    ):
+        ax.semilogy(k[1:], y[1:], label=lab, **kw)
+        bx.plot(k[1:], y[1:] / np.maximum(truth[1:], 1e-20), label=lab, **kw)
+    bx.axhline(1.0, color="0.2", lw=2.0)
+    ax.set_ylabel("mean zonal power, 10m wind speed")
+    bx.set_ylabel("power / ERA5 power")
+    bx.set_ylim(0, 1.35)
+    for a_ in (ax, bx):
+        a_.set_xlabel("zonal wavenumber k (waves per latitude circle)")
+        a_.grid(alpha=0.3)
+    ax.legend(fontsize=7)
+    fig.suptitle(
+        f"Where the ML forecast loses its small scales, and what putting them "
+        f"back looks like ({lead} h)\n"
+        f"k=0 is pinned, so the field mean is untouched; scored on the inits "
+        f"the factors were NOT fitted on",
+        fontsize=9)
+    fig.tight_layout(rect=(0, 0, 1, 0.90))
+    FIGURES.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=140)
+    plt.close(fig)
+    return True
+
+
 def main() -> None:
     df = load_all()
     lines = [
@@ -327,6 +377,17 @@ def main() -> None:
         "![Frontier wind](artifacts/figures/frontier_wind.png)",
         "",
     ]
+    if spectrum_figure(FIGURES / "spectrum_120h.png"):
+        lines += [
+            "![Zonal power spectrum at 120 h]"
+            "(artifacts/figures/spectrum_120h.png)",
+            "",
+            "The forecast that wins on RMSE is the one missing the small scales. "
+            "The recalibration adds them back at a stated RMSE cost -- both "
+            "columns are in the table above, because reporting only the improved "
+            "one is the trick this section exists to avoid.",
+            "",
+        ]
 
     (REPO_ROOT / "RESULTS.md").write_text("\n".join(lines))
     print(f"wrote {REPO_ROOT / 'RESULTS.md'} with {df.model.nunique()} models")
