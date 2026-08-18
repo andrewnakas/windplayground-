@@ -180,6 +180,29 @@ refinement levels at once, 40,962 nodes) so that both local and hemispheric inte
 have short paths. Reproducing GraphCast's architecture at 1/50th the mesh and 1/50th the
 parameters reproduces its structure, not its skill.
 
+**2b. The transformer does not overtake the CNN when it stops being starved
+(resolved 2026-08-18).** Finding 2 left an obvious objection open: the ViT was
+trained for 8,000 steps, and transformers are the architecture most often said
+to need more. So both were re-run at long budgets, and the ranking did not move.
+
+| model | params | steps | 24 h | 72 h | 120 h |
+|---|---|---|---|---|---|
+| `unet` | 1.06M | 4,000 | 1.208 | 2.439 | — |
+| `unet_long` | 1.06M | 45,000 | **1.044** | **2.174** | **2.729** |
+| `vit` | 2.80M | 8,000 | 1.560 | 2.760 | 3.068 |
+| `vit_long` | 2.80M | 30,000 | 1.167 | 2.310 | 2.804 |
+
+10m wind speed RMSE (m/s), 2020 test split, same pipeline.
+
+The extra training helped the ViT most — 25% at 24 h against the U-Net's 14% —
+which is the direction the "starved" objection predicts. It just does not close
+the gap: at 3.75x the steps and 2.6x the parameters, `vit_long` still trails a
+U-Net that trained in *less* wall-clock. Attention has to learn locality that
+convolution is given for free, and 40 years of 5.625-degree ERA5 is not enough
+data to pay that back. Stormer's result is not contradicted here — it is
+evidence about a regime this budget cannot reach, and that distinction is the
+whole point of reporting the negative.
+
 **3. Over-parameterized post-processing does *not* transfer across model versions
 (negative result).** A 1M-parameter U-Net corrector trained on GraphCast's published 2018
 forecasts *degraded* its 2020 forecasts (10m wind speed RMSE 0.97 vs 0.86 at 72 h). The
