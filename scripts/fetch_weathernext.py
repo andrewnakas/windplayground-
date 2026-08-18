@@ -81,26 +81,130 @@ def ensure_credentials() -> None:
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = fh.name
 
 
-def client(project: str | None):
+# --- who are we acting as? -------------------------------------------------
+#
+# A service-account email is not a credential; it is the principal a grant
+# attaches to. "WeatherNext was granted to 631486859154-compute@..." means the
+# *service account* can read it -- not necessarily the user login that
+# `gcloud auth application-default login` left behind. Running as the wrong
+# principal fails exactly like having no access at all, so --probe prints who
+# it is before it prints what it can see.
+
+SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+
+
+def adc_hint(exc) -> str:
+    return f"{credentials_hint()}\n\n({exc})"
+
+
+def build_credentials(impersonate: str | None):
+    """ADC, or ADC impersonating a service account. No key file either way."""
+    import google.auth
+    try:
+        source, _ = google.auth.default(scopes=SCOPES)
+    except Exception as exc:
+        if type(exc).__name__ == "DefaultCredentialsError":
+            sys.exit(adc_hint(exc))
+        raise
+    if not impersonate:
+        return source, None
+    from google.auth import impersonated_credentials
+    return impersonated_credentials.Credentials(
+        source_credentials=source,
+        target_principal=impersonate,
+        target_scopes=SCOPES,
+    ), impersonate
+
+
+def principal_of(creds, bq=None) -> str:
+    """Best available answer to 'who am I', by local inspection first."""
+    for attr in ("service_account_email", "signer_email", "account"):
+        value = getattr(creds, attr, None)
+        if isinstance(value, str) and "@" in value:
+            return value
+    # A user ADC token carries no email locally, but a dry run costs nothing
+    # and BigQuery answers authoritatively.
+    if bq is not None:
+        try:
+            from google.cloud import bigquery
+            job = bq.query("SELECT 1", job_config=bigquery.QueryJobConfig(
+                dry_run=True, use_query_cache=False))
+            if job.user_email:
+                return job.user_email
+        except Exception:
+            pass
+    return "unknown (user ADC carries no email; try `gcloud auth list`)"
+
+
+def denied_message(principal: str, impersonate: str | None, exc) -> str:
+    """Name the likely cause, because 403 here has two very different ones."""
+    if impersonate:
+        return (
+            f"permission denied while acting as {principal}\n  {exc}\n\n"
+            f"Impersonation itself worked, so this is the data grant rather\n"
+            f"than the principal: {impersonate} needs roles/bigquery.dataViewer\n"
+            f"on the WeatherNext dataset and roles/bigquery.jobUser on the\n"
+            f"project being billed.")
+    return (
+        f"permission denied as {principal}\n  {exc}\n\n"
+        f"WeatherNext access is normally granted to a SERVICE ACCOUNT, and this\n"
+        f"ran as a user login -- so the likely cause is the wrong principal, not\n"
+        f"missing access. Re-run against the granted account:\n\n"
+        f"    ... --impersonate SERVICE_ACCOUNT_EMAIL\n\n"
+        f"which needs roles/iam.serviceAccountTokenCreator on it, granted to you:\n\n"
+        f"    gcloud iam service-accounts add-iam-policy-binding SA_EMAIL \\\n"
+        f"      --member=user:YOUR_EMAIL \\\n"
+        f"      --role=roles/iam.serviceAccountTokenCreator")
+
+
+def guarded(fn, principal: str, impersonate: str | None):
+    """Run fn(), turning the two IAM failure modes into their explanations."""
+    try:
+        return fn()
+    except Exception as exc:
+        name = type(exc).__name__
+        if name in ("Forbidden", "PermissionDenied") or "403" in str(exc):
+            sys.exit(denied_message(principal, impersonate, exc))
+        if name == "RefreshError" and impersonate:
+            sys.exit(
+                f"could not mint a token for {impersonate}:\n  {exc}\n\n"
+                f"This is the impersonation grant, not WeatherNext. You need\n"
+                f"roles/iam.serviceAccountTokenCreator on {impersonate}:\n\n"
+                f"    gcloud iam service-accounts add-iam-policy-binding "
+                f"{impersonate} \\\n"
+                f"      --member=user:YOUR_EMAIL \\\n"
+                f"      --role=roles/iam.serviceAccountTokenCreator")
+        raise
+
+
+def client(project: str | None, impersonate: str | None = None):
+    """Returns (client, principal, impersonating) -- who matters as much as what."""
     try:
         from google.cloud import bigquery
     except ImportError:
         sys.exit("pip install google-cloud-bigquery  (not installed here yet)")
     ensure_credentials()
-    return bigquery.Client(project=project) if project else bigquery.Client()
+    creds, impersonating = build_credentials(impersonate)
+    bq = (bigquery.Client(project=project, credentials=creds) if project
+          else bigquery.Client(credentials=creds))
+    return bq, principal_of(creds, bq), impersonating
 
 
-def probe(project: str | None, pattern: str) -> None:
+def probe(project: str | None, pattern: str, impersonate: str | None = None) -> None:
     """Metadata only: which datasets/tables/columns exist, and the newest init.
 
     Prints rather than returns, because the point is to put the real names in
-    front of a human before any query is written against them.
+    front of a human before any query is written against them -- starting with
+    the principal, since an empty listing means nothing until you know who did
+    the looking.
     """
-    bq = client(project)
-    print(f"windml project={bq.project}", flush=True)
+    bq, principal, impersonating = client(project, impersonate)
+    print(f"windml acting as {principal}"
+          + (" (impersonated)" if impersonating else "")
+          + f", project={bq.project}", flush=True)
 
     hits = []
-    for ds in bq.list_datasets():
+    for ds in guarded(lambda: list(bq.list_datasets()), principal, impersonating):
         did = ds.dataset_id
         if pattern.lower() not in did.lower():
             continue
@@ -110,9 +214,11 @@ def probe(project: str | None, pattern: str) -> None:
             print(f"windml   table={tbl.table_id}", flush=True)
 
     if not hits:
-        print(f"windml no dataset matching {pattern!r} is visible to these "
-              f"credentials. WeatherNext may be shared as a linked dataset from "
-              f"another project -- pass --project or --dataset explicitly.",
+        print(f"windml no dataset matching {pattern!r} is visible to "
+              f"{principal}. Two different causes look identical here: it may be "
+              f"shared as a linked dataset from another project (pass --project "
+              f"or --table explicitly), or the grant may be on a service account "
+              f"rather than on this principal (re-run with --impersonate).",
               flush=True)
         return
 
@@ -146,13 +252,18 @@ def main() -> None:
     p.add_argument("--force", action="store_true",
                    help="run even above --max-gb (say why in the commit)")
     p.add_argument("--out", default=str(OUT_DIR))
+    p.add_argument("--impersonate", default=None, metavar="SA_EMAIL",
+                   help="act as this service account -- use it when WeatherNext "
+                        "was granted to a service account rather than to the "
+                        "principal these credentials carry. Needs "
+                        "roles/iam.serviceAccountTokenCreator on it.")
     a = p.parse_args()
 
     if not (a.probe or a.estimate or a.fetch):
         sys.exit("pick one of --probe / --estimate / --fetch (probe first)")
 
     if a.probe:
-        probe(a.project, a.pattern)
+        probe(a.project, a.pattern, a.impersonate)
         return
 
     if not a.table:
@@ -169,6 +280,7 @@ def main() -> None:
         "components) and the partitioning. Writing SQL against guessed columns\n"
         "is how the CMIP prep burned four runs on a filename assumption.\n\n"
         "Run:  python scripts/fetch_weathernext.py --probe --project treesixty\n"
+        "      (add --impersonate SA_EMAIL if the grant is on a service account)\n"
         "and the query gets written to match what it reports."
     )
 

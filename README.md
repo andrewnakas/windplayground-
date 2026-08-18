@@ -126,6 +126,24 @@ anything over `--max-gb` (your project is the one billed), aggregates to the 180
 inferred rather than guessing silently. `scripts/fetch_weathernext.py` is the same job
 for a container that has credentials in the environment instead.
 
+**If the grant is on a service account, add `--impersonate`.** WeatherNext access is
+usually attached to a service account rather than to your login, and the two are
+different principals — so the same command that works for the service account 403s for
+you, which reads as "the access didn't work" when it is really "wrong principal". A
+service-account email like `631486859154-compute@developer.gserviceaccount.com` is a
+**grantee identifier, not a secret**: it is safe to paste, and it authenticates nothing
+on its own.
+
+```bash
+python scripts/wn_export_local.py --probe --project YOUR_PROJECT \
+    --impersonate SERVICE_ACCOUNT_EMAIL
+```
+
+That needs `roles/iam.serviceAccountTokenCreator` on the service account, granted to
+you. Every run prints the principal it is acting as *before* it prints what it can see,
+so an empty listing is diagnosable rather than a dead end, and a 403 says which of the
+two grants is missing.
+
 ## Honest scope
 
 Our from-scratch models train on 4 CPU cores at 5.625°; GraphCast et al. train at 0.25°

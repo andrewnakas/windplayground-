@@ -80,3 +80,95 @@ def test_grid_header_is_identical_to_the_existing_live_sources():
                               ref["refTime"], 72)[0]["header"]
     for k in ("nx", "ny", "la1", "lo1", "la2", "lo2", "dx", "dy", "forecastTime"):
         assert got[k] == ref[k], f"{k}: {got[k]} != {ref[k]} (blend would refuse)"
+
+
+# --- who we authenticate AS -------------------------------------------------
+#
+# WeatherNext access was granted to a service account, and the exporter
+# authenticates as whoever ran `gcloud auth application-default login`. Those
+# can be different principals, and when they are, the failure is a 403 that
+# looks exactly like "the dataset is not shared with you". These tests pin the
+# wiring that makes the difference visible, and they run without credentials or
+# network -- which is the only place this part can be checked before the script
+# leaves for someone else's machine.
+
+SA = "631486859154-compute@developer.gserviceaccount.com"
+
+
+class _FakeSource:
+    """Enough of a credential for impersonated_credentials to wrap, no more."""
+    universe_domain = "googleapis.com"
+
+
+def test_no_impersonation_uses_adc_unchanged(monkeypatch):
+    google_auth = pytest.importorskip("google.auth")
+    source = _FakeSource()
+    monkeypatch.setattr(google_auth, "default", lambda scopes=None: (source, "proj"))
+    creds, impersonating = wn.build_credentials(None)
+    assert creds is source
+    assert impersonating is None
+
+
+def test_impersonation_builds_the_credential_offline(monkeypatch):
+    """Constructing it must not touch the network -- the token is minted lazily."""
+    google_auth = pytest.importorskip("google.auth")
+    from google.auth import impersonated_credentials
+    monkeypatch.setattr(google_auth, "default",
+                        lambda scopes=None: (_FakeSource(), "proj"))
+    creds, impersonating = wn.build_credentials(SA)
+    assert isinstance(creds, impersonated_credentials.Credentials)
+    assert impersonating == SA
+    assert wn.principal_of(creds) == SA          # printed before anything else
+
+
+def test_principal_is_reported_not_guessed():
+    class Anonymous:                     # a user ADC token carries no email
+        pass
+    assert "unknown" in wn.principal_of(Anonymous())
+
+
+def test_denied_without_impersonation_names_the_token_creator_role():
+    msg = wn.denied_message("me@example.com", None, RuntimeError("403"))
+    assert "me@example.com" in msg
+    assert "roles/iam.serviceAccountTokenCreator" in msg
+    assert "--impersonate" in msg
+
+
+def test_denied_while_impersonating_blames_the_data_grant_instead():
+    """The two 403s have different fixes; conflating them sends you in circles."""
+    msg = wn.denied_message(SA, SA, RuntimeError("403"))
+    assert "roles/bigquery.dataViewer" in msg
+    assert "roles/iam.serviceAccountTokenCreator" not in msg
+
+
+def test_guarded_turns_a_403_into_the_explanation():
+    class Forbidden(Exception):
+        pass
+
+    def boom():
+        raise Forbidden("Access Denied: Table x")
+
+    with pytest.raises(SystemExit, match="serviceAccountTokenCreator"):
+        wn.guarded(boom, "me@example.com", None)
+
+
+def test_guarded_reraises_anything_that_is_not_an_iam_problem():
+    def boom():
+        raise ValueError("bad SQL")
+
+    with pytest.raises(ValueError):
+        wn.guarded(boom, "me@example.com", None)
+
+
+def test_missing_credentials_is_an_instruction_not_a_traceback(monkeypatch):
+    google_auth = pytest.importorskip("google.auth")
+
+    class DefaultCredentialsError(Exception):
+        pass
+
+    def no_creds(scopes=None):
+        raise DefaultCredentialsError("not found")
+
+    monkeypatch.setattr(google_auth, "default", no_creds)
+    with pytest.raises(SystemExit, match="application-default login"):
+        wn.build_credentials(None)

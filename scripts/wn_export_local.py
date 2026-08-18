@@ -14,6 +14,19 @@ six small JSON files, and you commit them.
     python scripts/wn_export_local.py --export  --project treesixty
     git add viewer/data && git commit -m "weathernext live" && git push
 
+**If WeatherNext was granted to a service account, add `--impersonate`.** A
+service-account email is not a credential -- it is the principal a grant
+attaches to -- so a grant on `SA@project.iam.gserviceaccount.com` does nothing
+for your user login, and the resulting 403 looks exactly like "the access did
+not work". Acting as the granted account needs
+`roles/iam.serviceAccountTokenCreator` on it:
+
+    python scripts/wn_export_local.py --probe --project treesixty \
+        --impersonate 631486859154-compute@developer.gserviceaccount.com
+
+Every run prints the principal it is acting as before anything else, so "no
+datasets visible" is a diagnosable answer rather than a dead end.
+
 Output is ~0.1 MB per lead, so under 1 MB total. It lands in `viewer/data/` in
 exactly the layout `scripts/fetch_dynamical.py` produces, which means
 `scripts/blend_live.py` picks WeatherNext up as another live member with no
@@ -68,6 +81,106 @@ CANDIDATES = {
 }
 # member is optional: a deterministic product has none, and that is fine
 OPTIONAL = {"member"}
+
+
+# --- who are we acting as? -------------------------------------------------
+#
+# A service-account email is not a credential; it is the principal a grant
+# attaches to. "WeatherNext was granted to 631486859154-compute@..." means the
+# *service account* can read it -- not necessarily the user login that
+# `gcloud auth application-default login` left behind. Running as the wrong
+# principal fails exactly like having no access at all, so --probe prints who
+# it is before it prints what it can see.
+
+SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+
+
+def adc_hint(exc) -> str:
+    return ("no Google credentials on this machine. Run:\n\n"
+            "    gcloud auth application-default login\n\n"
+            "No service-account key is needed -- your own login is enough, and\n"
+            "--impersonate covers the case where the grant is on a service\n"
+            f"account rather than on you.\n\n({exc})")
+
+
+def build_credentials(impersonate: str | None):
+    """ADC, or ADC impersonating a service account. No key file either way."""
+    import google.auth
+    try:
+        source, _ = google.auth.default(scopes=SCOPES)
+    except Exception as exc:
+        if type(exc).__name__ == "DefaultCredentialsError":
+            sys.exit(adc_hint(exc))
+        raise
+    if not impersonate:
+        return source, None
+    from google.auth import impersonated_credentials
+    return impersonated_credentials.Credentials(
+        source_credentials=source,
+        target_principal=impersonate,
+        target_scopes=SCOPES,
+    ), impersonate
+
+
+def principal_of(creds, bq=None) -> str:
+    """Best available answer to 'who am I', by local inspection first."""
+    for attr in ("service_account_email", "signer_email", "account"):
+        value = getattr(creds, attr, None)
+        if isinstance(value, str) and "@" in value:
+            return value
+    # A user ADC token carries no email locally, but a dry run costs nothing
+    # and BigQuery answers authoritatively.
+    if bq is not None:
+        try:
+            from google.cloud import bigquery
+            job = bq.query("SELECT 1", job_config=bigquery.QueryJobConfig(
+                dry_run=True, use_query_cache=False))
+            if job.user_email:
+                return job.user_email
+        except Exception:
+            pass
+    return "unknown (user ADC carries no email; try `gcloud auth list`)"
+
+
+def denied_message(principal: str, impersonate: str | None, exc) -> str:
+    """Name the likely cause, because 403 here has two very different ones."""
+    if impersonate:
+        return (
+            f"permission denied while acting as {principal}\n  {exc}\n\n"
+            f"Impersonation itself worked, so this is the data grant rather\n"
+            f"than the principal: {impersonate} needs roles/bigquery.dataViewer\n"
+            f"on the WeatherNext dataset and roles/bigquery.jobUser on the\n"
+            f"project being billed.")
+    return (
+        f"permission denied as {principal}\n  {exc}\n\n"
+        f"WeatherNext access is normally granted to a SERVICE ACCOUNT, and this\n"
+        f"ran as a user login -- so the likely cause is the wrong principal, not\n"
+        f"missing access. Re-run against the granted account:\n\n"
+        f"    ... --impersonate SERVICE_ACCOUNT_EMAIL\n\n"
+        f"which needs roles/iam.serviceAccountTokenCreator on it, granted to you:\n\n"
+        f"    gcloud iam service-accounts add-iam-policy-binding SA_EMAIL \\\n"
+        f"      --member=user:YOUR_EMAIL \\\n"
+        f"      --role=roles/iam.serviceAccountTokenCreator")
+
+
+def guarded(fn, principal: str, impersonate: str | None):
+    """Run fn(), turning the two IAM failure modes into their explanations."""
+    try:
+        return fn()
+    except Exception as exc:
+        name = type(exc).__name__
+        if name in ("Forbidden", "PermissionDenied") or "403" in str(exc):
+            sys.exit(denied_message(principal, impersonate, exc))
+        if name == "RefreshError" and impersonate:
+            sys.exit(
+                f"could not mint a token for {impersonate}:\n  {exc}\n\n"
+                f"This is the impersonation grant, not WeatherNext. You need\n"
+                f"roles/iam.serviceAccountTokenCreator on {impersonate}:\n\n"
+                f"    gcloud iam service-accounts add-iam-policy-binding "
+                f"{impersonate} \\\n"
+                f"      --member=user:YOUR_EMAIL \\\n"
+                f"      --role=roles/iam.serviceAccountTokenCreator")
+        raise
 
 
 def discover(schema_names: list[str]) -> dict[str, str]:
@@ -151,6 +264,11 @@ def main() -> None:
     p.add_argument("--max-gb", type=float, default=50.0)
     p.add_argument("--force", action="store_true")
     p.add_argument("--out", default=str(OUT_DIR))
+    p.add_argument("--impersonate", default=None, metavar="SA_EMAIL",
+                   help="act as this service account instead of your own login "
+                        "-- use it when WeatherNext was granted to a service "
+                        "account rather than to you. Needs "
+                        "roles/iam.serviceAccountTokenCreator on it.")
     a = p.parse_args()
     if not (a.probe or a.export):
         sys.exit("pick --probe or --export (probe first)")
@@ -159,11 +277,19 @@ def main() -> None:
         from google.cloud import bigquery
     except ImportError:
         sys.exit("pip install google-cloud-bigquery")
-    bq = bigquery.Client(project=a.project)
+    creds, impersonating = build_credentials(a.impersonate)
+    bq = bigquery.Client(project=a.project, credentials=creds)
+
+    # First line of output, always: a listing that finds nothing is only
+    # interpretable once you know which principal did the looking.
+    principal = principal_of(creds, bq)
+    print(f"windml acting as {principal}"
+          + (" (impersonated from your login)" if impersonating else "")
+          + f", billing project {bq.project}")
 
     if a.probe:
         found = False
-        for ds in bq.list_datasets():
+        for ds in guarded(lambda: list(bq.list_datasets()), principal, impersonating):
             if a.pattern.lower() not in ds.dataset_id.lower():
                 continue
             found = True
@@ -177,19 +303,22 @@ def main() -> None:
                 for f in ref.schema:
                     print(f"windml     {f.name:36s} {f.field_type}")
         if not found:
-            print(f"windml nothing matching {a.pattern!r}. WeatherNext may be "
-                  f"shared as a linked dataset -- check the BigQuery console for "
-                  f"its exact project.dataset and pass --table directly.")
+            print(f"windml nothing matching {a.pattern!r} is visible to "
+                  f"{principal}. Two different causes look identical here: the "
+                  f"dataset may be shared as a linked dataset in another project "
+                  f"(pass --table directly), or the grant may be on a service "
+                  f"account rather than on you (re-run with --impersonate).")
         return
 
     if not a.table:
         sys.exit("--table required for --export; run --probe first")
 
-    ref = bq.get_table(a.table)
+    ref = guarded(lambda: bq.get_table(a.table), principal, impersonating)
     cols = discover([f.name for f in ref.schema])
 
-    init_row = list(bq.query(
-        f"SELECT MAX({cols['init']}) AS m FROM `{a.table}`").result())[0]
+    init_row = guarded(lambda: list(bq.query(
+        f"SELECT MAX({cols['init']}) AS m FROM `{a.table}`").result()),
+        principal, impersonating)[0]
     init = init_row["m"]
     if init is None:
         sys.exit("no rows / no init time found")
@@ -221,7 +350,8 @@ def main() -> None:
                      f"Re-run with --force if that is acceptable; it bills "
                      f"your project.")
 
-        rows = list(bq.query(sql).result())
+        rows = guarded(lambda: list(bq.query(sql).result()),
+                       principal, impersonating)
         u = [math.nan] * (NX * NY)
         v = [math.nan] * (NX * NY)
         for r in rows:
