@@ -51,7 +51,7 @@ jobs:
           # zarr>=3 is required for dynamical.org's Zarr v3 / Icechunk store and
           # conflicts with the training env's pinned zarr<3, which is why this
           # is a standalone install rather than the project's own environment.
-          python -m pip install --quiet "zarr>=3" "xarray>=2025.1" numpy aiohttp pandas
+          python -m pip install --quiet "zarr>=3" "xarray>=2025.1" numpy aiohttp pandas pyyaml
 
       - name: Fetch live forecasts
         run: |
@@ -75,7 +75,11 @@ jobs:
           python scripts/blend_live.py
 
       - name: Rebuild site
-        run: python scripts/build_site.py
+        # PYTHONPATH rather than `pip install -e .`: the package pins zarr<3,
+        # which is exactly what the fetch step above cannot have. build_site.py
+        # only needs windml.config, so putting src/ on the path imports it
+        # without dragging in torch or downgrading zarr.
+        run: PYTHONPATH=src python scripts/build_site.py
 
       - name: Commit if the forecast actually moved
         run: |
