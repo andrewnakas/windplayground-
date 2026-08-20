@@ -112,8 +112,16 @@ published analogue to what this repo does at small scale.
 |---|---|---|
 | Persistence | 936 / 1033 | 4.23 / 4.56 |
 | Climatology (WB1) | 816 | 3.50 |
-| Rasp & Thuerey 2021 ResNet (CMIP-pretrained, 6.3M params) | **268 / 499** | **1.65 / 2.41** |
+| Rasp & Thuerey 2021 ResNet, direct, **ERA5 only** (6.3M params) | **314 / 561** | 1.79 / 2.82 |
+| Rasp & Thuerey 2021 ResNet, direct, **CMIP6-pretrained** | **268 / 523** | **1.65 / 2.52** |
+| Rasp & Thuerey 2021 ResNet, continuous, CMIP6-pretrained | 284 / 499 | 1.72 / 2.41 |
+| IFS T63 | 268 / 463 | 1.85 / 2.52 |
 | Operational IFS regridded to 5.625° | 154 / 334 | 1.36 / 2.03 |
+
+(Transcribed from Table 1 of arXiv 2008.08626v2. An earlier version of this table carried
+a single "CMIP-pretrained" row reading 268 / 499 and 1.65 / 2.41 — the 3-day figures come
+from *Direct (pretrained)* and the 5-day ones from *Continuous (pretrained)*, two
+different models. The rows are separated above.)
 
 (Rasp & Thuerey did not train on wind; our tables add u10/v10/wind-speed rows scored
 identically, with the published 64×32-regridded GraphCast/HRES forecasts as the reference
@@ -172,6 +180,29 @@ refinement levels at once, 40,962 nodes) so that both local and hemispheric inte
 have short paths. Reproducing GraphCast's architecture at 1/50th the mesh and 1/50th the
 parameters reproduces its structure, not its skill.
 
+**2b. The transformer does not overtake the CNN when it stops being starved
+(resolved 2026-08-18).** Finding 2 left an obvious objection open: the ViT was
+trained for 8,000 steps, and transformers are the architecture most often said
+to need more. So both were re-run at long budgets, and the ranking did not move.
+
+| model | params | steps | 24 h | 72 h | 120 h |
+|---|---|---|---|---|---|
+| `unet` | 1.06M | 4,000 | 1.208 | 2.439 | — |
+| `unet_long` | 1.06M | 45,000 | **1.044** | **2.174** | **2.729** |
+| `vit` | 2.80M | 8,000 | 1.560 | 2.760 | 3.068 |
+| `vit_long` | 2.80M | 30,000 | 1.167 | 2.310 | 2.804 |
+
+10m wind speed RMSE (m/s), 2020 test split, same pipeline.
+
+The extra training helped the ViT most — 25% at 24 h against the U-Net's 14% —
+which is the direction the "starved" objection predicts. It just does not close
+the gap: at 3.75x the steps and 2.6x the parameters, `vit_long` still trails a
+U-Net that trained in *less* wall-clock. Attention has to learn locality that
+convolution is given for free, and 40 years of 5.625-degree ERA5 is not enough
+data to pay that back. Stormer's result is not contradicted here — it is
+evidence about a regime this budget cannot reach, and that distinction is the
+whole point of reporting the negative.
+
 **3. Over-parameterized post-processing does *not* transfer across model versions
 (negative result).** A 1M-parameter U-Net corrector trained on GraphCast's published 2018
 forecasts *degraded* its 2020 forecasts (10m wind speed RMSE 0.97 vs 0.86 at 72 h). The
@@ -214,8 +245,22 @@ the precise ranking among averages.
 
 ### Chasing the 5.625° anchor: how far we got, and what actually blocks it
 
-Rasp & Thuerey 2021 reach **z500 RMSE 268 at 3 days**. We set out to match it from
-scratch. Progression, each step a deliberate change:
+**Correction first, because it changes what the target even is.** Earlier drafts of this
+section quoted Rasp & Thuerey's **268** as the number a from-scratch ERA5 model should
+reach. It is not. Reading Table 1 of arXiv 2008.08626v2 directly:
+
+| their model | z500 @ 3d / 5d |
+|---|---|
+| Direct, **ERA5 only** | **314 / 561** |
+| Direct, **CMIP6-pretrained** | 268 / 523 |
+| Continuous, CMIP6-pretrained | 284 / 499 |
+
+268 requires pretraining on ~150 years of CMIP6 MPI-ESM-HR. The apples-to-apples target
+for a model trained only on ERA5 is **314**. Every "gap to 268" figure below was
+measured against the wrong anchor, and the gap to the right one is proportionally
+smaller — though still a miss, so the conclusion does not change, only its size.
+
+Progression, each step a deliberate change:
 
 | model | z500 @3d | what changed |
 |---|---|---|
@@ -223,14 +268,24 @@ scratch. Progression, each step a deliberate change:
 | `unet_long` (45k steps) | 455 | 4.7× training |
 | `unet_long_ft2` | 435 | + K=2 rollout curriculum |
 | `unet_long_ft4` | 412 | + K=4 |
-| `levels72` | 394 | + vertical inputs, direct 72h target |
-| `anchor72` | **387** | + 6.6M params, z500-weighted loss |
-| `resnet72` | 438 | full-resolution ResNet at equal wall-clock (worse) |
-| *target* | *268* | |
+| `levels72` | 394 | + vertical inputs, direct 72h target (see ablation below) |
+| `anchor72` | 387 | + 6.6M params, z500-weighted loss |
+| `resnet72` | 438 | full-resolution ResNet, 0.5M — too small, see below |
+| `resnet72_big` | **378** | full-resolution ResNet, 1.7M, equal wall-clock |
+| *target (ERA5-only)* | *314* | |
+| *their pretrained number* | *268* | needs 150 y of CMIP6 |
 
-**We did not reach it — we stalled at 387, 44% above.** The last two changes are worth
-dwelling on because they were my main hypotheses and they mostly failed: going from
-2.95M to 6.6M parameters *and* weighting the loss 9× onto z500 together bought 1.6%.
+**These adapted models never reached it — the best is 378.5, 21% above the 314 ERA5-only
+anchor.** The anchor was eventually met, but not by any of them: it took the *faithful*
+RT2021 recreation (117 inputs, 3 outputs, their exact recipe) trained on a GPU, which
+scores **306.7** and is covered in its own section below. This progression is the record
+of what could and could not be bought by adapting a different model, and the answer turns
+out to be "not enough". Two of these steps are worth dwelling on because they were my
+main hypotheses. Capacity plus
+loss weighting mostly failed: going from 2.95M to 6.6M parameters *and* weighting the
+loss 20× onto z500 together bought 1.6%. Architecture did not: dropping to a 1.7M
+full-resolution ResNet at the same wall-clock bought another 2.3% and produced the best
+number here, which is analysed in full below.
 
 Benchmarking the architecture finally explained why. Their model is a
 **fully-convolutional ResNet that never pools** — it holds 32×64 through 19 residual
@@ -255,7 +310,36 @@ it directly: same inputs, same direct-72h target, same loss weighting, same wall
 `anchor72`, but spent on a small full-resolution model (0.5M params) instead of a large
 pooled one (6.6M).
 
-**The test refuted the prediction.**
+**Which half of `levels72` did the work?** That row bundles two changes — vertical
+inputs and a direct 72 h target — and `direct72` separates them by applying only the
+direct target to the plain 8-channel set:
+
+| model | channel set | target | steps | z500 @3d | z500 @5d |
+|---|---|---|---|---|---|
+| `direct72` / `direct120` | core (8 ch) | direct | 20k | 455.6 | 696.3 |
+| `unet_long` | core (8 ch) | iterative 6 h | 45k | 454.9 | 706.5 |
+| `unet_long_ft4` | core (8 ch) | + K=4 rollout fine-tune | 45k + | **411.7** | **642.5** |
+| `levels72` / `levels120` | levels (vertical) | direct | 14k / 18k | 393.7 | 671.9 |
+
+The budgets are not equal — the direct models got 20k steps against `unet_long`'s 45k —
+so this is weaker than the resolution comparison above and is reported as such. What it
+shows, and now at **both leads rather than one**, is that the direct target alone lands
+essentially on top of the iterative base model (455.6 vs 454.9 at 3 d; 696.3 vs 706.5 at
+5 d) while using under half the steps, and clearly behind the rollout-fine-tuned version
+at both. So the ~15% that `levels72` gained over `unet_long` is attributable mainly to
+the **vertical inputs**, not to the direct target, and the progression table above should
+be read that way.
+
+Rollout fine-tuning is the one cheap lever that works consistently here: −9.5% at 3 d and
+−9.1% at 5 d over its own base, and `unet_long_ft4` remains the best 5-day model in the
+repo despite the direct models being aimed squarely at that lead. Direct-lead prediction
+wins at 72 h only once it is paired with vertical inputs, and loses at 120 h even then
+(671.9 against 642.5) — the horizon where a single shot has to cover the most evolution
+is where iterating with a corrected rollout pays off most.
+
+**The test appeared to refute the prediction** — and was itself later overturned; the
+resolved version is the table two blocks down, and this one is kept because the sequence
+is the point.
 
 | model | architecture | params | z500 @3d |
 |---|---|---|---|
@@ -266,22 +350,343 @@ pooled one (6.6M).
 Full resolution came out *worse*, not better. At a fixed CPU budget, parameters behind a
 pooling bottleneck beat resolution — the opposite of what I expected.
 
-The honest caveat: this equalized *wall-clock*, not *capacity*, and the ResNet had 13×
-fewer parameters, so it does not prove resolution is irrelevant — only that it is not
-worth this much capacity. `configs/resnet72_big.yaml` (1.7M params, full resolution,
-~9.5 h) is the remaining disentangler; if it still trails the 2.95M pooled `levels72`,
-the resolution explanation is dead.
+The honest caveat at the time: this equalized *wall-clock*, not *capacity*, and the
+ResNet had 13× fewer parameters, so it did not prove resolution irrelevant — only that
+it was not worth that much capacity. `configs/resnet72_big.yaml` (1.7M params, full
+resolution) was the remaining disentangler.
 
-What this leaves: every lever predicted to close the gap to 268 — more capacity, a loss
+**And the disentangler reversed the reversal.** `resnet72_big` scores z500 **378.5** —
+the best from-scratch number in this repo, beating the 6.6M pooled `anchor72` with 3.9×
+fewer parameters:
+
+| model | architecture | params | wall-clock | z500 @3d | t850 @3d |
+|---|---|---|---|---|---|
+| `resnet72_big` | ResNet, full 32×64 | 1.7M | 4.27 h | **378.5** | 1.988 |
+| `anchor72` | U-Net, pools to 8×16 | 6.6M | 4.36 h | 387.4 | **1.870** |
+| `levels72` | U-Net, pools to 8×16 | 2.95M | 2.22 h | 393.7 | 1.992 |
+| `resnet72` | ResNet, full 32×64 | 0.5M | 1.89 h | 437.6 | 2.230 |
+
+The comparison is controlled where it matters: `resnet72_big` and `anchor72` share the
+variable set, two-frame inputs, batch size 16, LR 4e-4, the direct 72 h target and — the
+part that would otherwise confound this — **identical channel loss weights** (z500 20,
+t850 6). Wall-clock differs by 2%.
+
+So the sequence was: I predicted resolution binds → `resnet72` appeared to refute it →
+`resnet72_big` shows the refutation was a **capacity artifact**, 0.5M being simply too
+small to represent the field regardless of grid. At comparable capacity, full resolution
+wins. Note also that `anchor72` weighted z500 at 20× and *still* lost on z500 to a model
+with a quarter of its parameters, which makes the architectural reading harder to escape.
+
+Not a clean sweep, and reporting it as one would be wrong: **`anchor72` wins t850**
+(1.870 vs 1.988) under the same loss weights. Pooling costs the most on the variable with
+the sharpest gradients (geopotential) and costs little on the smoother one.
+
+The earlier claim in this report — "at a fixed CPU budget, capacity buys more than
+resolution" — was measured on the 0.5M model and does not survive. The corrected claim is
+narrower and the opposite in sign: **at comparable capacity and equal wall-clock, keeping
+the full 32×64 grid beats pooling for z500.** That is also the architecture Rasp &
+Thuerey use, which is a point in favour of the faithful reproduction rather than more
+U-Net tuning.
+
+What this leaves: every lever predicted to close the gap — more capacity, a loss
 focused on z500, a direct target, full resolution — delivered little or backfired. The
-gap is not yet explained by anything measured here, and CMIP6 pretraining (their
-remaining difference) was never attempted.
+gap is not explained by anything measured here.
 
-Honest bottom line on this goal: **the anchor was not met.** What remains untried is
-their CMIP6 pretraining, and what is out of reach is the compute their architecture
-needs. Note also that our best *forecast* — the 5-member ensemble at z500 98 — is far
-past 268, but that blends other groups' 0.25° forecasts and is a different achievement
-entirely; the from-scratch number is 387.
+**What was actually different, found only after the fact.** Pulling the paper and the
+author's `src/networks.py` side by side against our configs, the models were not
+near-variants of each other at all:
+
+| | Rasp & Thuerey | ours (`anchor72`) |
+|---|---|---|
+| input channels | **117** (5 vars × 7 levels + t2m + precip + TOA solar, at t/t−6h/t−12h, + 3 constants) | 25–49 |
+| output channels | **3** (z500, t850, t2m) | 20 |
+| training years | 1979–2015 | 1979–2017 |
+| test years | **2017–2018** | 2020 |
+
+So this was never a compute deficit being papered over — it was a different model fed
+different inputs, scored on a different period. That also means our 378.5 and their 314
+are not strictly comparable numbers, which is its own reason the "gap" was never going
+to be interpretable.
+
+### The faithful reproduction: 306.7, which passes the anchor
+
+Built as `src/windml/models/rt_resnet.py` (**6,355,587** parameters against their ~6.3M)
+and trained on a Kaggle P100 for 111,454 steps at the paper's recipe — 117 inputs, 3
+outputs, batch 32, LR 5e-5, plain Adam with conv-only L2 1e-5, plateau ×0.2 twice, both
+drops taken, validation flat at 0.1150 over the last ~20k steps. Scored on **2017–2018**,
+all 2906 six-hourly inits with a valid +72 h verification, latitude-weighted RMSE:
+
+| variable @72 h | **ours** | R&T ERA5-only | vs | R&T CMIP6-pretrained |
+|---|---|---|---|---|
+| z500 (m²/s²) | **306.7** | 314 | **−2.3%** | 268 |
+| t850 (K) | **1.53** | 1.79 | **−14.3%** | 1.65 |
+| t2m (K) | **1.21** | 1.53 | **−21.1%** | 1.42 |
+
+**The anchor is met on all three variables**, and t850 and t2m also come in under their
+*pretrained* figures — the ones that cost 150 years of CMIP6. z500 does not: 306.7 is
+comfortably past the ERA5-only 314 but still 14% above the pretrained 268, which is
+consistent with the paper's own finding that pretraining helps geopotential most.
+
+This is the same grid, the same test years and the same metric as theirs, so the
+comparison is like-for-like. Four differences remain, all of which make it a *close*
+reproduction rather than an identical one, and any of them could account for a few
+percent either way:
+
+- **TOA solar radiation is computed analytically** (Spencer 1971) rather than read from
+  the archive, because WeatherBench-2's 64×32 ERA5 does not ship the field. It is pure
+  solar geometry, so this is exact rather than a substitute.
+- **Land-sea mask and orography are stand-ins** derived from the time mean of 925 hPa
+  geopotential, since the prep output does not carry ERA5's own constant fields. This is
+  the crudest of the four and the one most likely to matter.
+- **Training length was ours to choose.** The paper reports ~1 day on a GTX 2080 without
+  a step count; we ran 111k steps to a flat validation curve. Some of the margin is
+  probably just more training.
+- **Source data** is the WB2 conservatively-regridded ERA5, not the WeatherBench-1 files
+  the paper used.
+
+So: the recreation reaches and slightly exceeds the published ERA5-only model. The
+remaining 306.7 → 268 step is CMIP6 pretraining, which is now the one lever the paper
+used that this project has not.
+
+#### At 5 days the same recipe misses on z500 — and the paper predicts why
+
+Training a second model at the paper's 120 h lead (identical recipe, `DIRECT_STEPS=20`)
+gives a **split result**:
+
+| variable @120 h | ours | R&T ERA5-only | vs | R&T CMIP6-pretrained |
+|---|---|---|---|---|
+| z500 (m²/s²) | 593.0 | **561** | **+5.7% — missed** | 523 |
+| t850 (K) | **2.55** | 2.82 | −9.6% | 2.52 |
+| t2m (K) | **1.90** | 2.32 | −18.3% | 2.03 |
+
+Two variables clear the anchor; geopotential does not. This is not a truncated run: it
+**early-stopped at 58,000 steps** with both LR drops taken, best validation at step
+40,000, and a clear train/validation gap by the end (0.196 against 0.249).
+
+That gap is the explanation, and it is the paper's own. Section 3 of arXiv 2008.08626v2
+argues that overfitting worsens with lead time — a longer horizon means a wider
+distribution of plausible outcomes, so estimating its mean needs more data — and that
+this is precisely why CMIP6 pretraining helps most at long leads. Their own numbers show
+it: pretraining buys 314 → 268 at 3 days (−15%) but 561 → 523 at 5 days on a base that
+is already much harder.
+
+So the 5-day miss is evidence *for* the pretraining step rather than against the
+reproduction: we reproduced the recipe faithfully enough to reproduce its weakness. It
+also lines up with the independent finding above that direct-lead prediction loses to
+rollout fine-tuning at 120 h while winning at 72 h.
+
+#### CMIP6 pretraining: design confirmed, blocked on bandwidth
+
+The 306.7 → 268 step needs the pretraining the paper does, and the open question
+was never the model — `src/windml/models/grow.py` already grows the stem 111→117
+and the head 2→3 with zeros so the transfer is exact at step 0. It was whether
+the archive actually carries the levels the design assumes. z/T/q are 46.4, 41.8
+and 45.0 GB against u/v's 12.8 and 12.0 at identical span and grid, and that 3.6×
+ratio had never been explained.
+
+**It is now, and the design survives.** Reading one u-wind chunk directly:
+
+    dims: {time: 7304, plev: 7, lat: 32, lon: 64}
+    plev: [925, 850, 700, 600, 500, 250, 50]
+
+Exactly the paper's seven, no more. And the ratio follows: u/v are 1.83 GB per
+level, so geopotential's 46.4 GB implies ~25 levels. z/T/q are archived on a
+full profile and we need 7 of it — meaning ~3.6× of the z/T/q bytes are
+downloaded and discarded, with no way to sub-select inside a zip.
+
+What blocks it is bandwidth, measured rather than assumed:
+
+| path | throughput | 48 GB window |
+|---|---|---|
+| Kaggle kernel → TUM | **< 70 kB/s** | impossible inside a 12 h session |
+| this container → TUM, via the 303 redirect | 717 kB/s | ~19 h |
+| this container → TUM, direct WebDAV | 1.5 MB/s | ~9 h |
+
+Two findings worth keeping: the dataset's `/download?path=…` endpoint 303-redirects
+to WebDAV, and going straight there doubles throughput because a chunked fetch
+otherwise pays a redirect per request. And Kaggle's egress to this host is ~20×
+slower than this container's, which is what killed four probe attempts.
+
+So CMIP prep belongs on the GTX 1080 box — which has the disk and no session cap,
+and is exactly where the original plan put it before this detour. This container
+cannot host it either: ~3 GB free against an ~11 GB output. `scripts/fetch_cmip.py`
+now uses the WebDAV URL and carries the corrected sizes; `kaggle/prep_cmip.py` has
+the working Range-over-zip reader, which is the reusable part.
+
+Status, plainly: **pretraining is designed, its one open assumption is verified,
+and it is not run.** The 268 figure remains unreproduced, and the reason is
+bandwidth to a single archive rather than anything about the model.
+
+#### The 8-seed TPU ensemble: attempted, not delivered
+
+The plan was to train one model per chip on Kaggle's TPU — eight seeds for the wall-clock
+of one — and report the ensemble, since ensembling is the lever already measured here.
+The plumbing works: `kaggle/tpu_probe.py` established that a `v5litepod-8` exposes all
+eight chips to a single process (`xmp.spawn` is unusable on it — the host declares one
+worker address), and a smoke run trained eight full 6.36M models and wrote eight
+checkpoints.
+
+The full run never got past its first batch, three times, always on the host→device
+transfer:
+
+| batch | error | free at failure |
+|---|---|---|
+| 128 | `RESOURCE_EXHAUSTED` allocating 120 MB | 21.4 MB |
+| 64 | `RESOURCE_EXHAUSTED` allocating 64 MB | 37.2 MB |
+| 32 | `RESOURCE_EXHAUSTED` allocating 32 MB | 5.0 MB |
+
+Two hypotheses were tested and both failed. Shrinking the batch recovered only the amount
+the input block itself shrank by, so the batch was never the constraint. And the
+per-device readout — added precisely to settle it — shows all eight chips at
+**0.03 GB used of a 16.91 GB limit**, so the members are correctly spread and are not
+crowding one chip, which is what I had assumed.
+
+That leaves a contradiction I did not resolve: `xm.get_memory_info` reports ~16.9 GB free
+on the device the allocator says has 5 MB.
+
+**Five hypotheses were tested and all five were wrong.** Recording them because the
+elimination is the only durable thing this produced:
+
+| hypothesis | how it died |
+|---|---|
+| batch size too large | halving it recovered only the input block's own shrinkage; 32 failed too |
+| members crowding one chip | instrumented run: all 8 chips at 0.026 GB used of a 16.91 GB limit |
+| host RAM exhausted | the VM has 396 GB and 384 GB was free at the moment of failure |
+| the real data path | `kaggle/tpu_memdiag.py` ran {synthetic, real} × {1, 8 devices} and **all four passed**, including the exact configuration that fails here |
+| pending-graph pile-up | syncing after each member could not even be reached — the failure is inside the *first* member's first transfer, with nothing yet accumulated |
+
+The last one is worth flagging as a process error rather than just a wrong guess: the fix
+I wrote placed the sync *after* `train_step`, while the failure happens *inside* it, so
+that run could never have tested the hypothesis it was built for. I noticed only when the
+error came back byte-identical.
+
+The state at failure is the whole puzzle: device 0.026 GB used of 16.91 GB, host 384 GB
+free, and a 32 MB allocation refused with "4.99M free" — on the first host→device
+transfer of the run, from a script that a near-identical standalone diagnostic performs
+successfully on the same hardware. That is a torch_xla/Kaggle interaction, not a capacity
+problem, and finding it needs a line-by-line bisection against the working diagnostic
+rather than more remote guesses.
+
+Capped at six runs and stopped. It costs the ensemble result, not the reproduction — the
+306.7 above is a GPU number and is unaffected. One consolation: the last attempt reverted
+to the paper's batch 32 and LR 5e-5 with no clipping, so whenever this is picked up the
+members will be recipe-faithful rather than a scaled-up variant.
+
+One consolation from the last attempt: reverting to the paper's batch 32 and LR 5e-5
+removed every deviation the larger-batch plan had introduced, so whenever this is fixed
+the members will be recipe-faithful rather than a scaled-up variant.
+
+Note also that our best *forecast* — the 5-member ensemble at z500 98 — is far past both
+numbers, but that blends other groups' 0.25° forecasts and is a different achievement
+entirely; the best from-scratch model at coarse resolution is this one at 306.7, and the
+best without the paper's 117-channel input design is `resnet72_big` at 378.5.
+
+### Beating the frontier models where RMSE cannot see
+
+Everything above is scored on RMSE, and on RMSE the ordering is settled: the
+frontier models are ~3× better than anything we train, and our multi-model blend
+is ~12% better than the best of them. But **every model in that table is
+deliberately blurred**, ours included. An RMSE-optimal forecast is the
+conditional mean, and hedging towards the mean is exactly what minimises squared
+error. For wind that is not cosmetic — power goes as v³, so a smooth forecast
+systematically under-produces energy and misses the high-wind events that
+matter.
+
+Scoring all six forecast sets on sharpness diagnostics (241 inits, 2020, 10 m
+wind speed) gives a near-perfect **inversion** of the RMSE table:
+
+| model @120 h | ws RMSE (m/s) | high-k power | 95th-pct bias | capacity-factor bias |
+|---|---|---|---|---|
+| `avg4` (our blend) | **1.392** | 0.710 | −1.673 | **−0.0221** |
+| FuXi | 1.473 | 0.819 | −1.427 | −0.0129 |
+| GenCast-mean | 1.478 | 0.659 | −1.943 | −0.0251 |
+| GraphCast | 1.486 | 0.773 | −1.562 | −0.0190 |
+| Pangu | 1.556 | 0.893 | −1.273 | −0.0066 |
+| **HRES** (physics) | 1.670 | **0.958** | **−1.270** | **−0.0009** |
+
+The best forecast on RMSE is the worst on realism, and the *physics* model —
+last on RMSE — is the only one that is energetically unbiased. At five days our
+blend under-predicts capacity factor by **2.2 points** where HRES is within
+0.09. The two variance metrics also separate *what kind* of blur it is: total
+variance is only ~10% low while high-wavenumber power is ~29% low, so the energy
+is present but sitting at the wrong scales.
+
+**The fix is about 30 numbers.** One amplification factor per zonal wavenumber
+per lead, fitted so the forecast's mean power spectrum matches ERA5's, with k=0
+pinned so the field mean is untouched. No network — it can only restore
+amplitude the forecast has misplaced, not invent structure. Inits alternate
+between the fit set and the scored set, so both span the whole year, and a
+damping exponent `a(k)**α` is chosen on the fit set alone.
+
+| @120 h | ws RMSE | high-k power | capacity-factor bias |
+|---|---|---|---|
+| `avg4`, raw | 1.376 | 0.713 | −0.0216 |
+| `avg4`, **recalibrated** | 1.388 (+0.9%) | **1.022** | **+0.0003** |
+| GraphCast, raw | 1.466 | 0.777 | −0.0189 |
+| GraphCast, **recalibrated** | 1.487 (+1.4%) | **1.001** | **−0.0017** |
+| GenCast-mean, raw | 1.465 | 0.663 | −0.0250 |
+| GenCast-mean, **recalibrated** | 1.470 (+0.3%) | **1.011** | **−0.0013** |
+| HRES, raw | 1.662 | 0.955 | +0.0002 |
+| HRES, recalibrated | 1.680 | 1.009 | +0.0051 *(worse)* |
+
+**Recalibrated `avg4` beats HRES on RMSE by 16% while matching its energy
+fidelity** (+0.0003 against +0.0002), and beats raw GraphCast on RMSE *and* on
+energy bias simultaneously. GenCast-mean, the blurriest of the set, gets its
+2.5-point capacity-factor bias removed for +0.3% RMSE.
+
+An earlier version of this table fitted on January–June and scored July–December
+and reported +1.9 to +2.4% RMSE with spectra overshooting to 1.05–1.12. Both
+were artefacts of that split: correcting a Northern-Hemisphere winter into a
+summer. Balancing the seasons and damping the exponent made the correction
+**both more accurate and cheaper** — spectra now land within 2% of 1.0 and the
+RMSE cost roughly halved.
+
+The fitted α is worth reading on its own, because it separates two effects that
+the seasonal split had confounded:
+
+| model @120 h | high-k power, raw | α |
+|---|---|---|
+| GenCast-mean | 0.663 | 0.75 |
+| `avg4` | 0.713 | 0.80 |
+| GraphCast | 0.777 | 0.85 |
+| FuXi | 0.817 | 0.90 |
+| Pangu | 0.896 | 1.05 |
+| HRES | 0.955 | 1.25 |
+
+α tracks the deficit almost monotonically. The blurriest forecasts need the raw
+ratio *damped* — so for them the fitted amplification really is optimistic out
+of sample, a genuine generalisation gap and not just the season. The sharpest
+need α above 1, which is the search saying there is nothing to correct. Both
+effects were present; only the seasonal one was visible before.
+
+The HRES row is the reason to believe the rest. HRES is already sharp, so the
+correction has nothing to restore and instead adds noise and *introduces* bias —
+which is what a real physical correction should do to an already-calibrated
+forecast. A post-processor that improved every model equally would be a metric
+trick; this one only helps where there is a measured deficit.
+
+Stated limits:
+
+- **RMSE always gets worse.** Adding variance back costs squared error by
+  construction. Both columns appear in every table here for that reason; quoting
+  only the energy metrics would be the trick.
+- **The split is interleaved, not a held-out year.** Fit and scored inits
+  alternate through 2020, so seasons are balanced, but adjacent inits are
+  correlated. That is acceptable *for this estimator specifically* — ~30 numbers
+  describing a climatological spectrum shape cannot memorise individual days —
+  and would not be acceptable for a per-pixel or learned correction. A held-out
+  year is the stronger test; only 2020 competitor forecasts are cached and this
+  container has ~3 GB of disk.
+- This corrects 10 m u/v only, and is evaluated at 5.625°. Whether the same
+  deficit holds at 0.25° is untested here — WeatherBench 2's own spectra suggest
+  it does, but that is their measurement, not ours.
+- 61 scored inits per lead at a 12-step stride. The numbers moved by under 1%
+  between a 61-init and a 241-init sharpness scan, so the ranking is stable, but
+  these are not 1460-init figures.
+
+The honest summary: **we cannot beat the frontier models at forecasting, and we
+can beat them at describing the wind field.** Those are different claims and
+both belong in the same table.
 
 ### What a real 0.25° WB2 leaderboard entry would take
 
