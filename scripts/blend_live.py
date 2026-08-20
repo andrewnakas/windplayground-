@@ -47,14 +47,76 @@ def load(source_id: str, lead: int) -> list | None:
     return json.loads(p.read_text())
 
 
+def member_init(source_id: str, leads: list[int]) -> str | None:
+    """The one init a member carries across all its leads, or None if absent.
+
+    A member whose own files disagree is broken rather than stale -- a fetch
+    that died halfway leaves lead 24 on the new cycle and lead 96 on the old --
+    so that stays fatal. Disagreement *between* members is the ordinary case
+    handled by align_members().
+    """
+    refs = set()
+    for lead in leads:
+        rec = load(source_id, lead)
+        if rec is None:
+            continue
+        refs |= {c["header"]["refTime"] for c in rec}
+    if not refs:
+        return None
+    if len(refs) > 1:
+        raise SystemExit(
+            f"{source_id} carries more than one init across its own leads: "
+            f"{sorted(refs)}. That is a half-finished fetch, not a stale "
+            f"member -- re-run the fetch for {source_id} before blending.")
+    return refs.pop()
+
+
+def align_members(members: list[str], leads: list[int]) -> list[str]:
+    """Keep only the members on the newest init, and say which were dropped.
+
+    Averaging two different cycles is not an ensemble, which is why this file
+    refuses to do it. It used to refuse by aborting -- but the members do not
+    all refresh on the same clock: AIFS and GFS come from dynamical.org and the
+    6-hourly workflow re-fetches them, while WeatherNext needs a credentialed
+    BigQuery export that only runs from a developer machine. Aborting meant one
+    unavoidably-lagging member froze the whole live blend, including the two
+    that had fresh data.
+
+    So the guard's intent is kept exactly -- nothing off-cycle is ever averaged
+    -- and only the response changes: drop the laggard, name it, carry on.
+    """
+    inits = {m: member_init(m, leads) for m in members}
+    present = {m: r for m, r in inits.items() if r is not None}
+    for m, r in inits.items():
+        if r is None:
+            print(f"windml {m}: no files on disk, not a member of this blend")
+    if not present:
+        raise SystemExit("no live member has any data on disk")
+
+    newest = max(present.values())
+    aligned = [m for m in members if present.get(m) == newest]
+    for m in members:
+        if m in present and m not in aligned:
+            print(f"windml EXCLUDED {m}: init {present[m]} is behind the "
+                  f"newest live init {newest}. It is not averaged in -- "
+                  f"re-fetch it to bring it back into the blend.")
+    if len(aligned) < 2:
+        raise SystemExit(
+            f"only {len(aligned)} member(s) on the newest init {newest}: "
+            f"{aligned}. A 'multi-model mean' of one model is not one; "
+            f"re-fetch the others onto this cycle.")
+    return aligned
+
+
 def check_compatible(recs: list[tuple[str, list]]) -> str:
     """All members must share a grid AND an init time. Returns that init time.
 
-    The init check is the one that actually matters. Filenames are stable
-    (`aifs_live_latest_072.json` is overwritten in place), so if one fetch fails
-    the previous cycle's file stays on disk looking perfectly valid. Averaging a
-    12Z forecast with yesterday's 00Z is not an ensemble, and nothing downstream
-    would reveal it -- the blend would simply be quietly wrong.
+    Off-cycle members are already removed by align_members(), so reaching the
+    init branch here means something inconsistent survived that filter. It is
+    kept as a real check rather than an assertion because the cost of being
+    wrong is silent: filenames are stable (`aifs_live_latest_072.json` is
+    overwritten in place), so a stale file looks perfectly valid, and averaging
+    a 12Z forecast with yesterday's 00Z would simply be quietly wrong.
     """
     ref0 = None
     grid0 = None
@@ -128,6 +190,9 @@ def main() -> None:
         raise SystemExit(f"need >=2 live sources to blend, found {members}")
     leads = sorted({ld for s in live if s["id"] in members for ld in s["leads"]})
     print(f"windml members={members} candidate_leads={leads}")
+    members = align_members(members, leads)
+    if members != (a.members or [s["id"] for s in live]):
+        print(f"windml blending members={members}")
 
     done, ref = [], None
     for lead in leads:

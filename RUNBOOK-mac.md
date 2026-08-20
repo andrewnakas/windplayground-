@@ -105,6 +105,14 @@ source — there is no list to add it to. It will also fail if the shared init i
 more than 18 h old, which is a stopped refresh rather than a data error; the
 message says which.
 
+**WeatherNext falls out of the blend on its own, and that is expected.** The
+6-hourly workflow re-fetches AIFS and GFS but cannot re-run this export — CI has
+no Google credentials, which is the whole reason this runbook exists. So within
+a cycle or two WeatherNext is behind, and `blend_live.py` prints
+`EXCLUDED weathernext_live: init ... is behind ...` and publishes the AIFS+GFS
+mean instead. Nothing is broken; the site stays current and the viewer label
+drops back to two models. Re-run steps 2–4 to put WeatherNext back in.
+
 **Look at the map before you push.** Open `docs/viewer/index.html`, pick "Live
 multi-model mean" and confirm particles are moving over land as well as ocean.
 A previous fix in this project was shipped without looking at the render and was

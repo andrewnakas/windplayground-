@@ -115,3 +115,71 @@ def test_a_future_init_is_negative_not_stale():
     ahead = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime(
         "%Y-%m-%dT%H:%M:%SZ")
     assert bl.age_hours(ahead) < 0
+
+
+# --- align_members: which members reach blend_lead at all -------------------
+#
+# blend_lead still refuses to average two cycles (above). What changed is who
+# gets that far. The members do not share a refresh clock -- AIFS and GFS come
+# from the 6-hourly workflow, WeatherNext from a credentialed export that only
+# runs from a developer machine -- so treating "one member is behind" as fatal
+# let the slowest member freeze the whole live blend. It is now excluded by
+# name instead, and only the genuinely ambiguous cases still raise.
+
+def test_a_member_on_an_older_init_is_excluded_not_fatal(workspace, capsys):
+    write(workspace, "a_live", 72, record([1.0, 1.0], [0.0, 0.0], nx=2, ny=1))
+    write(workspace, "b_live", 72, record([3.0, 3.0], [0.0, 0.0], nx=2, ny=1))
+    write(workspace, "c_live", 72, record([9.0, 9.0], [0.0, 0.0], nx=2, ny=1,
+                                          ref="2026-08-09T00:00:00Z"))
+    assert bl.align_members(["a_live", "b_live", "c_live"], [72]) == [
+        "a_live", "b_live"]
+    assert "EXCLUDED c_live" in capsys.readouterr().out
+
+
+def test_the_survivors_still_blend(workspace):
+    """Exclusion is only useful if the remaining members produce a blend."""
+    write(workspace, "a_live", 72, record([1.0, 1.0], [0.0, 0.0], nx=2, ny=1))
+    write(workspace, "b_live", 72, record([3.0, 3.0], [0.0, 0.0], nx=2, ny=1))
+    write(workspace, "c_live", 72, record([9.0, 9.0], [0.0, 0.0], nx=2, ny=1,
+                                          ref="2026-08-09T00:00:00Z"))
+    kept = bl.align_members(["a_live", "b_live", "c_live"], [72])
+    assert bl.blend_lead(kept, 72) == REF
+    out = json.loads((workspace / "live_blend_latest_072.json").read_text())
+    assert out[0]["data"] == [2.0, 2.0]          # mean of 1 and 3, not of 1,3,9
+
+
+def test_excluding_down_to_one_member_is_fatal(workspace):
+    """Dropping laggards must not quietly turn the mean into a single model."""
+    write(workspace, "a_live", 72, record([1.0, 1.0], [0.0, 0.0], nx=2, ny=1))
+    write(workspace, "b_live", 72, record([9.0, 9.0], [0.0, 0.0], nx=2, ny=1,
+                                          ref="2026-08-09T00:00:00Z"))
+    with pytest.raises(SystemExit, match="only 1 member"):
+        bl.align_members(["a_live", "b_live"], [72])
+
+
+def test_a_member_disagreeing_with_itself_is_fatal(workspace):
+    """Half-finished fetch: lead 72 moved to the new cycle, lead 96 did not.
+
+    This is not staleness -- there is no single init to compare against -- so
+    excluding it would be guessing which half is real.
+    """
+    write(workspace, "a_live", 72, record([1.0, 1.0], [0.0, 0.0], nx=2, ny=1))
+    write(workspace, "a_live", 96, record([1.0, 1.0], [0.0, 0.0], nx=2, ny=1,
+                                          lead=96, ref="2026-08-09T00:00:00Z"))
+    with pytest.raises(SystemExit, match="more than one init across its own"):
+        bl.align_members(["a_live"], [72, 96])
+
+
+def test_a_member_with_no_files_is_not_a_member(workspace, capsys):
+    write(workspace, "a_live", 72, record([1.0, 1.0], [0.0, 0.0], nx=2, ny=1))
+    write(workspace, "b_live", 72, record([3.0, 3.0], [0.0, 0.0], nx=2, ny=1))
+    assert bl.align_members(["a_live", "b_live", "gone_live"], [72]) == [
+        "a_live", "b_live"]
+    assert "gone_live: no files on disk" in capsys.readouterr().out
+
+
+def test_member_init_reads_the_shared_init(workspace):
+    write(workspace, "a_live", 72, record([1.0], [0.0], nx=1, ny=1))
+    write(workspace, "a_live", 96, record([1.0], [0.0], nx=1, ny=1, lead=96))
+    assert bl.member_init("a_live", [72, 96, 120]) == REF
+    assert bl.member_init("absent_live", [72]) is None
