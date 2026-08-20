@@ -107,42 +107,24 @@ the trick this section exists to avoid.
 
 | model | variant | lead | ws RMSE | spec | cf bias |
 |---|---|---|---|---|---|
-| avg4 (mean of 4) | raw | 24 h | 0.363 | 0.944 | -0.0022 |
-| avg4 (mean of 4) | spectral | 24 h | 0.364 | 0.998 | -0.0001 |
-| graphcast_2020 | raw | 24 h | 0.389 | 0.936 | -0.0040 |
-| graphcast_2020 | spectral | 24 h | 0.388 | 0.999 | -0.0012 |
-| pangu_2020 | raw | 24 h | 0.412 | 0.947 | -0.0020 |
-| pangu_2020 | spectral | 24 h | 0.414 | 0.996 | -0.0002 |
-| gencast_mean_2020 | raw | 24 h | 0.391 | 0.951 | -0.0029 |
-| gencast_mean_2020 | spectral | 24 h | 0.392 | 1.001 | -0.0006 |
-| fuxi_2020 | raw | 24 h | 0.381 | 0.941 | -0.0021 |
-| fuxi_2020 | spectral | 24 h | 0.382 | 0.998 | -0.0001 |
-| hres_2020 | raw | 24 h | 0.499 | 0.996 | +0.0023 |
-| hres_2020 | spectral | 24 h | 0.500 | 0.999 | +0.0018 |
-| avg4 (mean of 4) | raw | 72 h | 0.786 | 0.858 | -0.0088 |
-| avg4 (mean of 4) | spectral | 72 h | 0.789 | 1.012 | -0.0001 |
-| graphcast_2020 | raw | 72 h | 0.855 | 0.840 | -0.0120 |
-| graphcast_2020 | spectral | 72 h | 0.857 | 1.011 | -0.0010 |
-| pangu_2020 | raw | 72 h | 0.901 | 0.920 | -0.0047 |
-| pangu_2020 | spectral | 72 h | 0.913 | 1.009 | +0.0005 |
-| gencast_mean_2020 | raw | 72 h | 0.854 | 0.849 | -0.0086 |
-| gencast_mean_2020 | spectral | 72 h | 0.859 | 1.005 | -0.0005 |
-| fuxi_2020 | raw | 72 h | 0.843 | 0.877 | -0.0069 |
-| fuxi_2020 | spectral | 72 h | 0.852 | 1.004 | +0.0006 |
-| hres_2020 | raw | 72 h | 0.988 | 1.003 | +0.0003 |
-| hres_2020 | spectral | 72 h | 0.992 | 1.019 | +0.0015 |
-| avg4 (mean of 4) | raw | 120 h | 1.376 | 0.713 | -0.0216 |
-| avg4 (mean of 4) | spectral | 120 h | 1.388 | 1.022 | +0.0003 |
-| graphcast_2020 | raw | 120 h | 1.466 | 0.777 | -0.0189 |
-| graphcast_2020 | spectral | 120 h | 1.487 | 1.001 | -0.0017 |
-| pangu_2020 | raw | 120 h | 1.548 | 0.896 | -0.0065 |
-| pangu_2020 | spectral | 120 h | 1.571 | 1.014 | +0.0016 |
-| gencast_mean_2020 | raw | 120 h | 1.465 | 0.663 | -0.0250 |
-| gencast_mean_2020 | spectral | 120 h | 1.470 | 1.011 | -0.0013 |
-| fuxi_2020 | raw | 120 h | 1.452 | 0.817 | -0.0130 |
-| fuxi_2020 | spectral | 120 h | 1.478 | 1.001 | +0.0010 |
-| hres_2020 | raw | 120 h | 1.662 | 0.955 | +0.0002 |
-| hres_2020 | spectral | 120 h | 1.680 | 1.009 | +0.0051 |
+| avg4 (mean of 4) | raw | 24 h | 0.370 | 0.946 | -0.0017 |
+| avg4 (mean of 4) | spectral | 24 h | 0.371 | 0.999 | +0.0005 |
+| graphcast_2020 | raw | 24 h | 0.391 | 0.939 | -0.0030 |
+| graphcast_2020 | spectral | 24 h | 0.391 | 1.000 | -0.0001 |
+| hres_2020 | raw | 24 h | 0.514 | 1.001 | +0.0022 |
+| hres_2020 | spectral | 24 h | 0.514 | 1.002 | +0.0015 |
+| avg4 (mean of 4) | raw | 72 h | 0.803 | 0.852 | -0.0084 |
+| avg4 (mean of 4) | spectral | 72 h | 0.806 | 0.995 | -0.0001 |
+| graphcast_2020 | raw | 72 h | 0.862 | 0.837 | -0.0114 |
+| graphcast_2020 | spectral | 72 h | 0.865 | 0.996 | -0.0009 |
+| hres_2020 | raw | 72 h | 1.006 | 0.984 | +0.0003 |
+| hres_2020 | spectral | 72 h | 1.008 | 0.991 | +0.0009 |
+| avg4 (mean of 4) | raw | 120 h | 1.395 | 0.713 | -0.0220 |
+| avg4 (mean of 4) | spectral | 120 h | 1.408 | 1.017 | -0.0004 |
+| graphcast_2020 | raw | 120 h | 1.491 | 0.771 | -0.0188 |
+| graphcast_2020 | spectral | 120 h | 1.512 | 0.992 | -0.0018 |
+| hres_2020 | raw | 120 h | 1.678 | 0.966 | -0.0012 |
+| hres_2020 | spectral | 120 h | 1.689 | 1.010 | +0.0021 |
 
 HRES is the negative control: it is already sharp, so the
 correction has nothing to restore and makes it worse. A
@@ -186,6 +168,8 @@ metric artefact rather than a physical correction.
 | unet_long                  |   1.101 |   2.609 |   3.597 |
 | unet_long_ft2              |   1.066 |   2.501 |   3.499 |
 | unet_long_ft4              |   1.058 |   2.389 |   3.344 |
+| unet_wide                  |   1.041 |   2.518 |   3.526 |
+| vit_long                   |   1.227 |   2.788 |   3.68  |
 
 ## v10 — RMSE (m/s) at 24/72/120 h
 
@@ -224,6 +208,8 @@ metric artefact rather than a physical correction.
 | unet_long                  |   1.182 |   2.777 |   3.81  |
 | unet_long_ft2              |   1.145 |   2.667 |   3.713 |
 | unet_long_ft4              |   1.137 |   2.551 |   3.561 |
+| unet_wide                  |   1.122 |   2.689 |   3.763 |
+| vit_long                   |   1.314 |   2.937 |   3.879 |
 
 ## wind_speed — RMSE (m/s) at 24/72/120 h
 
@@ -262,6 +248,8 @@ metric artefact rather than a physical correction.
 | unet_long                  |   1.044 |   2.174 |   2.729 |
 | unet_long_ft2              |   1.019 |   2.107 |   2.675 |
 | unet_long_ft4              |   1.021 |   2.047 |   2.606 |
+| unet_wide                  |   0.989 |   2.099 |   2.669 |
+| vit_long                   |   1.167 |   2.31  |   2.804 |
 
 ## u850 — RMSE (m/s) at 24/72/120 h
 
@@ -300,6 +288,8 @@ metric artefact rather than a physical correction.
 | unet_long                  |   1.703 |   3.811 |   5.223 |
 | unet_long_ft2              |   1.644 |   3.652 |   5.063 |
 | unet_long_ft4              |   1.624 |   3.482 |   4.822 |
+| unet_wide                  |   1.614 |   3.667 |   5.11  |
+| vit_long                   |   1.878 |   4.061 |   5.329 |
 
 ## v850 — RMSE (m/s) at 24/72/120 h
 
@@ -338,6 +328,8 @@ metric artefact rather than a physical correction.
 | unet_long                  |   1.828 |   3.985 |   5.335 |
 | unet_long_ft2              |   1.764 |   3.825 |   5.192 |
 | unet_long_ft4              |   1.743 |   3.654 |   4.961 |
+| unet_wide                  |   1.737 |   3.86  |   5.269 |
+| vit_long                   |   2.015 |   4.198 |   5.379 |
 
 ## z500 — RMSE (m²/s²) at 24/72/120 h
 
@@ -376,6 +368,8 @@ metric artefact rather than a physical correction.
 | unet_long                  | 157.081 | 454.87  |  706.465 |
 | unet_long_ft2              | 151.233 | 435.44  |  683.107 |
 | unet_long_ft4              | 148.063 | 411.737 |  642.473 |
+| unet_wide                  | 149.116 | 433.974 |  682.044 |
+| vit_long                   | 186.383 | 504.91  |  737.137 |
 
 ## t2m — RMSE (K) at 24/72/120 h
 
@@ -414,6 +408,8 @@ metric artefact rather than a physical correction.
 | unet_long                  |   0.891 |   1.586 |   2.222 |
 | unet_long_ft2              |   0.892 |   1.555 |   2.175 |
 | unet_long_ft4              |   0.904 |   1.527 |   2.101 |
+| unet_wide                  |   0.839 |   1.497 |   2.136 |
+| vit_long                   |   0.996 |   1.808 |   2.486 |
 
 ## 10m wind speed — ACC at 24/72/120 h
 
@@ -452,6 +448,8 @@ metric artefact rather than a physical correction.
 | unet_long                  |   0.956 |   0.807 |   0.692 |
 | unet_long_ft2              |   0.958 |   0.817 |   0.7   |
 | unet_long_ft4              |   0.958 |   0.824 |   0.707 |
+| unet_wide                  |   0.961 |   0.821 |   0.709 |
+| vit_long                   |   0.945 |   0.777 |   0.663 |
 
 ## Wind RMSE relative to GraphCast (%, negative = better)
 
@@ -489,6 +487,8 @@ metric artefact rather than a physical correction.
 | unet_long                  |     175.4 |     186   |      113.3 |     178.3 |     181.9 |      108.6 |            168.3 |            153.2 |              84.6 |
 | unet_long_ft2              |     166.7 |     174.2 |      107.4 |     169.7 |     170.7 |      103.3 |            161.9 |            145.5 |              80.9 |
 | unet_long_ft4              |     164.8 |     161.9 |       98.3 |     167.8 |     158.9 |       95   |            162.5 |            138.5 |              76.2 |
+| unet_wide                  |     160.6 |     176.1 |      109   |     164.1 |     172.9 |      106.1 |            154.2 |            144.5 |              80.5 |
+| vit_long                   |     207.1 |     205.6 |      118.2 |     209.3 |     198.1 |      112.4 |            199.9 |            169.1 |              89.6 |
 
 ## Probabilistic: wind CRPS (m/s)
 
@@ -502,3 +502,7 @@ metric artefact rather than a physical correction.
 ![RMSE curves](artifacts/figures/rmse_curves.png)
 
 ![Frontier wind](artifacts/figures/frontier_wind.png)
+
+![Zonal power spectrum at 120 h](artifacts/figures/spectrum_120h.png)
+
+The forecast that wins on RMSE is the one missing the small scales. The recalibration adds them back at a stated RMSE cost -- both columns are in the table above, because reporting only the improved one is the trick this section exists to avoid.

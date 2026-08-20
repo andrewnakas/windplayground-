@@ -144,6 +144,15 @@ you. Every run prints the principal it is acting as *before* it prints what it c
 so an empty listing is diagnosable rather than a dead end, and a 403 says which of the
 two grants is missing.
 
+WeatherNext's schema is nested — position is a GEOGRAPHY point and every variable hangs
+off a REPEATED `forecast` record — so the exporter UNNESTs it, reads lat/lon with
+ST_Y/ST_X, and fetches all six leads in one query rather than re-scanning the array six
+times. Use the `…_mean` table; the 64-member one costs ~64× for a field that gets
+averaged anyway. `--match-live` pins the export to the init AIFS and GFS already carry,
+because `blend_live.py` refuses to average different cycles.
+
+**[`RUNBOOK-mac.md`](RUNBOOK-mac.md)** has the whole sequence end to end.
+
 ## Honest scope
 
 Our from-scratch models train on 4 CPU cores at 5.625°; GraphCast et al. train at 0.25°
