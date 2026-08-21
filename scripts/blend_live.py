@@ -217,6 +217,8 @@ def main() -> None:
         live = [s for s in man["sources"]
                 if s.get("kind") == "live"
                 and s.get("level", "10m") == level
+                and not s.get("domain")     # regional grids cannot join a
+                                            # global mean (CONUS != the world)
                 and s["id"] not in (BLEND_ID, BLEND_ID + "100")]
         members = a.members or [s["id"] for s in live]
         members = [m for m in members if m in {s["id"] for s in live}]

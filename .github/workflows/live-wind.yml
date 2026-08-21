@@ -66,6 +66,12 @@ jobs:
               echo "::endgroup::"
             done
           done
+          for level in 10m 80m; do
+            echo "::group::hrrr $level"
+            python scripts/fetch_dynamical.py --dataset hrrr --level "$level" \
+              || echo "hrrr $level failed, keeping previous data"
+            echo "::endgroup::"
+          done
 
       - name: Blend the live members
         run: |

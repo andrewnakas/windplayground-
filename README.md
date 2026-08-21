@@ -103,10 +103,12 @@ show a model's **error field vs ERA5** (2020 hindcasts), a live member's departu
 the multi-model mean, or the blend's **ensemble spread**. A skill panel plots every
 model's RMSE-vs-lead curve against the persistence floor and best-blend ceiling,
 straight from `docs/data/metrics.json` (exported from `artifacts/results/` — the viewer
-never hard-codes a score). A level picker climbs the full column — 10 m and 100 m (hub
+never hard-codes a score). A level picker climbs the full column — 10 m, 80 m and 100 m (hub
 height) live, and 850/700/500/250 hPa for ERA5 and the frontier archives via
 `scripts/export_levels.py`, each level on its own color scale (a 250 hPa jet is not a
-sea breeze). Live sources carry a data-age chip and deliberately show **no** skill
+sea breeze). NOAA **HRRR** joins as a regional live source — the 3 km CONUS model,
+binned to 0.2°, with a surface-**gust** shading mode (the global feeds carry no gusts;
+regional grids stay out of the global blend by construction). Live sources carry a data-age chip and deliberately show **no** skill
 numbers, because no verifying truth exists yet for today's dates.
 
 ## Live forecasts, and adding WeatherNext

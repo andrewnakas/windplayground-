@@ -14,15 +14,24 @@ export function gridFromRecord(rec, values) {
            values: values ?? Float64Array.from(rec.data) };
 }
 
-// Bilinear sample with longitude wraparound; the same function feeds the
-// raster, the click readout, and the meteogram so they can never disagree.
+// Bilinear sample; the same function feeds the raster, the click readout,
+// and the meteogram so they can never disagree. Global grids wrap in
+// longitude; a regional grid (HRRR's CONUS box) must NOT wrap -- its east
+// edge is not its west edge -- and anywhere outside it samples as NaN,
+// which every consumer renders as "no data".
 export function sampleGrid(g, lat, lon) {
+  const cyclic = Math.abs(g.nx * g.dx - 360) < g.dx * 1.5;
   let iy = (g.la1 - lat) / g.dy;
-  if (iy < 0) iy = 0;
-  if (iy > g.ny - 1) iy = g.ny - 1;
+  if (iy < 0 || iy > g.ny - 1) {
+    if (!cyclic) return NaN;
+    iy = iy < 0 ? 0 : g.ny - 1;          // clamp at the poles on global grids
+  }
   const iy0 = Math.floor(iy), iy1 = Math.min(iy0 + 1, g.ny - 1), fy = iy - iy0;
   const ix = (((lon - g.lo1) % 360) + 360) % 360 / g.dx;
-  const ix0 = Math.floor(ix) % g.nx, ix1 = (ix0 + 1) % g.nx, fx = ix - Math.floor(ix);
+  if (!cyclic && ix > g.nx - 1) return NaN;
+  const ix0 = Math.floor(ix) % g.nx;
+  const ix1 = cyclic ? (ix0 + 1) % g.nx : Math.min(ix0 + 1, g.nx - 1);
+  const fx = ix - Math.floor(ix);
   const v = g.values;
   const a = v[iy0 * g.nx + ix0], b = v[iy0 * g.nx + ix1];
   const c = v[iy1 * g.nx + ix0], d = v[iy1 * g.nx + ix1];

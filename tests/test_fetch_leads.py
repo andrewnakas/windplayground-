@@ -41,3 +41,50 @@ def test_request_order_is_preserved():
 def test_nothing_available_is_fatal():
     with pytest.raises(SystemExit, match="none of"):
         select_leads([0, 6], {24, 48})
+
+
+# --- bin_regrid: projected regional grid -> regular lat/lon ------------------
+
+import numpy as np
+
+wanted2 = [n for n in tree.body
+           if isinstance(n, ast.FunctionDef) and n.name == "bin_regrid"]
+mod2 = types.ModuleType("regrid_under_test")
+mod2.np = np
+exec(compile(ast.Module(body=wanted2, type_ignores=[]), "<fetch_dynamical>", "exec"),
+     mod2.__dict__)
+bin_regrid = mod2.bin_regrid
+
+
+def test_bin_regrid_averages_into_cells_north_first():
+    # a flat "projection": 4 points per 1-degree cell over a 2x2-cell box,
+    # value = 10*row + col of the cell the point belongs to
+    pts_lat, pts_lon, vals = [], [], []
+    for cy in range(2):
+        for cx in range(2):
+            for oy in (0.25, 0.75):
+                for ox in (0.25, 0.75):
+                    pts_lat.append(10 + cy + oy)
+                    pts_lon.append(20 + cx + ox)
+                    vals.append(10 * cy + cx)
+    lat, lon, (out,) = bin_regrid(np.array(pts_lat), np.array(pts_lon),
+                                  [np.array(vals, dtype=float)], 1.0)
+    assert out.shape == (2, 2) and len(lat) == 2 and len(lon) == 2
+    assert lat[0] > lat[-1]                     # north first
+    assert np.isfinite(out).all()               # full coverage after crop
+    # row 0 is NORTH (cy=1): cells 10,11; row 1 is south: 0,1
+    assert out.tolist() == [[10.0, 11.0], [0.0, 1.0]]
+
+
+def test_bin_regrid_crops_uncovered_corners():
+    # points fill a diamond; the corners of the bounding box are empty and
+    # must be cropped away rather than exported as holes
+    n = 41
+    y, x = np.mgrid[0:n, 0:n]
+    keep = (abs(x - n // 2) + abs(y - n // 2)) <= n // 2
+    lat2d = (10 + y * 0.1)[keep]
+    lon2d = (20 + x * 0.1)[keep]
+    f = np.ones(keep.sum())
+    lat, lon, (out,) = bin_regrid(lat2d, lon2d, [f], 0.2)
+    assert out.size > 0
+    assert np.isfinite(out).all()
