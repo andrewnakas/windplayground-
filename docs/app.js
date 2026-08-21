@@ -132,36 +132,52 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
   const byId = Object.fromEntries(manifest.sources.map(s => [s.id, s]));
   let leads = [];
 
-  // ---- 10 m / 100 m ------------------------------------------------------
-  // 100 m sources are the same fleet under ids like aifs100_live; the picker
-  // shows only 10 m and this toggle swaps the id render() actually loads.
-  const level100 = {};
+  // ---- levels: the full column ---------------------------------------------
+  // Level variants are the same source under ids like aifs100_live or
+  // graphcast850, tied to their base by the manifest's base/level keys. The
+  // picker shows only base (10 m) sources; this control swaps the id
+  // render() actually loads. Which rungs exist varies by source: live feeds
+  // stop at 100 m, FuXi's archive carries 850/500 only, ERA5 has them all.
+  const LEVEL_ORDER = ['10m', '100m', '850hPa', '700hPa', '500hPa', '250hPa'];
+  const LEVEL_LABEL = { '10m': '10 m', '100m': '100 m', '850hPa': '850',
+                        '700hPa': '700', '500hPa': '500', '250hPa': '250 hPa' };
+  // top of the color scale per level (m/s): the jet stream runs 3-4x surface
+  // speeds, and one fixed 0-25 ramp would saturate the entire upper air
+  const LEVEL_MAX = { '10m': 25, '100m': 30, '850hPa': 40, '700hPa': 45,
+                      '500hPa': 60, '250hPa': 90 };
+  const variants = {};
   for (const s of manifest.sources)
-    if (s.level === '100m') level100[s.id.replace('100', '')] = s.id;
+    if (s.level && s.base) (variants[s.base] ??= {})[s.level] = s.id;
   let levelMode = '10m';
   const levelCtl = document.getElementById('levelCtl');
 
   function effId(id = sourceSel.value) {
-    return levelMode === '100m' && level100[id] ? level100[id] : id;
+    return levelMode === '10m' ? id : (variants[id]?.[levelMode] ?? id);
+  }
+
+  function windMax() { return LEVEL_MAX[levelMode] ?? 25; }
+  // signed/vector error and spread grow with the flow itself; scale their
+  // domains with the level's speed scale so aloft doesn't saturate
+  function levelFactor() { return windMax() / 25; }
+
+  function levelsFor(baseId) {
+    return LEVEL_ORDER.filter(L => L === '10m' || variants[baseId]?.[L]);
   }
 
   function updateLevelCtl() {
-    if (!Object.keys(level100).length) return;      // no 100 m data exported yet
-    levelCtl.style.display = '';
-    const has100 = Boolean(level100[sourceSel.value]);
-    if (!has100) levelMode = '10m';
+    if (!Object.keys(variants).length) return;      // no level data exported yet
+    const avail = levelsFor(sourceSel.value);
+    if (!avail.includes(levelMode)) levelMode = '10m';
+    levelCtl.style.display = avail.length > 1 ? '' : 'none';
     levelCtl.innerHTML = '';
-    for (const [mode, label] of [['10m', '10 m'], ['100m', '100 m']]) {
+    for (const mode of avail) {
       const b = document.createElement('button');
-      b.textContent = label;
+      b.textContent = LEVEL_LABEL[mode];
+      b.title = mode.endsWith('hPa') ? `${mode.slice(0, -3)} hPa pressure level` : '';
       b.classList.toggle('on', mode === levelMode);
-      if (mode === '100m' && !has100) {
-        b.disabled = true;
-        b.title = '100 m wind is exported for the live sources only';
-      }
       b.addEventListener('click', () => {
         levelMode = mode;
-        updateLevelCtl(); updateViewCtl(); render();
+        updateLevelCtl(); updateViewCtl(); renderSkill(); render();
       });
       levelCtl.appendChild(b);
     }
@@ -328,6 +344,9 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
         + `sharpness: retains ${Math.round(sh.ws_spec_ratio * 100)}% of small-scale power @120h — blurrier ≠ worse RMSE</div>`;
     }
     out += leaderboardHTML(sid);
+    if (levelMode !== '10m')
+      out += `<div class="skill-note">Skill curves and ranks are 10&nbsp;m wind; `
+        + `aloft only u/v component scores exist (850&nbsp;hPa is in metrics.json).</div>`;
     out += `<div class="skill-note">${metrics.provenance}</div>`;
     skillBody.innerHTML = out;
     for (const row of skillBody.querySelectorAll('.lb-row'))
@@ -461,14 +480,14 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
     velocityLayer = L.velocityLayer({
       displayValues: true,
       displayOptions: {
-        velocityType: (levelMode === '100m' ? '100' : '10') + ' m wind',
+        velocityType: levelName() + ' wind',
         position: 'bottomleft',
         emptyString: 'hover the map for a wind readout',
         angleConvention: 'bearingCW',
         speedUnit: VENDOR_UNIT[currentUnit()],
       },
       data,
-      maxVelocity: MAX_WIND,
+      maxVelocity: windMax(),
       velocityScale: 0.012,
       particleAge: 70,
       lineWidth: 1.4,
@@ -478,12 +497,16 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
     velocityLayer.addTo(map);
   }
 
+  function levelName() {
+    return levelMode.endsWith('hPa')
+      ? levelMode.replace('hPa', ' hPa') : LEVEL_LABEL[levelMode];
+  }
+
   function setSub(data, src) {
     const nx = data[0].header.nx, ny = data[0].header.ny;
     const degrees = (360 / nx).toFixed(2).replace(/\.?0+$/, '');
-    const height = src.level === '100m' ? '100' : '10';
     document.getElementById('sub').innerHTML =
-      `${height}&nbsp;m wind &middot; ${nx}&times;${ny} grid (${degrees}&deg;) &middot; ` +
+      `${levelName().replace(' ', '&nbsp;')} wind &middot; ${nx}&times;${ny} grid (${degrees}&deg;) &middot; ` +
       (src.kind === 'live' ? 'live operational run' : '2020 test year');
   }
 
@@ -501,10 +524,12 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
           loadField(sourceId, init, lead), loadField(ref.id, init, lead)]);
         removeVelocity();                 // the error field IS the content
         const bias = errKind === 'bias';
+        const f = levelFactor();
+        const domain = bias ? BIAS_DOMAIN.map(d => d * f) : VEC_DOMAIN.map(d => d * f);
         speedLayer.setStyle({ colorStops: bias ? DIV_STOPS : SEQ_STOPS,
-                              domain: bias ? BIAS_DOMAIN : VEC_DOMAIN, opacity: 0.8 });
+                              domain, opacity: 0.8 });
         speedLayer.setGrid(diffGrid(a, b, errKind));
-        setLegend(bias ? DIV_STOPS : SEQ_STOPS, bias ? BIAS_DOMAIN : VEC_DOMAIN, !bias);
+        setLegend(bias ? DIV_STOPS : SEQ_STOPS, domain, !bias);
         setSub(a, src);
         say(src.kind === 'live'
           ? `departure from the multi-model mean at +${lead} h — a consistency check, not verification`
@@ -530,9 +555,9 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
       const data = await loadField(shownId, init, lead);
       showVelocity(data);
       currentSpeedGrid = speedGridOf(data);
-      speedLayer.setStyle({ colorStops: WIND_STOPS, domain: [0, MAX_WIND], opacity: 0.55 });
+      speedLayer.setStyle({ colorStops: WIND_STOPS, domain: [0, windMax()], opacity: 0.55 });
       speedLayer.setGrid(shadeOn ? currentSpeedGrid : null);
-      setLegend(WIND_STOPS, [0, MAX_WIND]);
+      setLegend(WIND_STOPS, [0, windMax()]);
       setSub(data, src);
       const shown = byId[shownId];
       if (viewMode === 'ref') {
@@ -571,6 +596,8 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
       if (src.id.startsWith(BLEND_SOURCE)) return null;    // the blends themselves
       return byId[src.level === '100m' ? BLEND_SOURCE + '100' : BLEND_SOURCE] ?? null;
     }
+    // hindcast: truth at the SAME level, or plain era5 at the surface
+    if (src.level) return byId[variants['era5']?.[src.level]] ?? null;
     return byId['era5'] ?? null;
   }
 
@@ -754,8 +781,10 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
     } else if (src.kind === 'truth') {
       list = [{ id: src.id, label: 'ERA5 (truth)', color: '#58a6ff', width: 2.5 }];
     } else {
-      list = [{ id: src.id, label: shortLabel(src), color: '#58a6ff', width: 2.5 },
-              { id: 'era5', label: 'ERA5 truth', color: '#e8ecf7', width: 1.4, dash: '4 3' }];
+      list = [{ id: src.id, label: shortLabel(src), color: '#58a6ff', width: 2.5 }];
+      const ref = refFor(src);
+      if (ref) list.push({ id: ref.id, label: 'ERA5 truth', color: '#e8ecf7',
+                           width: 1.4, dash: '4 3' });
     }
     list = list.filter(sr => byId[sr.id]);
 
