@@ -183,3 +183,43 @@ def test_member_init_reads_the_shared_init(workspace):
     write(workspace, "a_live", 96, record([1.0], [0.0], nx=1, ny=1, lead=96))
     assert bl.member_init("a_live", [72, 96, 120]) == REF
     assert bl.member_init("absent_live", [72]) is None
+
+
+# --- ensemble spread --------------------------------------------------------
+#
+# The spread file is what the viewer's uncertainty shading and meteogram band
+# read. Membership is resolved here, at blend time, precisely so the viewer
+# never re-derives who was on-cycle.
+
+def test_spread_is_the_population_std_of_member_speeds(workspace):
+    # member speeds at the two points: {3, 5} (u-only) and {4, 4} -> std 1, 0
+    write(workspace, "a_live", 72, record([3.0, 0.0], [0.0, 4.0], nx=2, ny=1))
+    write(workspace, "b_live", 72, record([5.0, 0.0], [0.0, -4.0], nx=2, ny=1))
+    bl.blend_lead(["a_live", "b_live"], 72)
+    out = json.loads((workspace / "live_spread_latest_072.json").read_text())
+    assert len(out) == 1
+    assert out[0]["data"] == [1.0, 0.0]
+    assert out[0]["header"]["parameterNumberName"] == "wind_speed_stddev"
+
+
+def test_spread_records_who_was_averaged(workspace):
+    write(workspace, "a_live", 72, record([1.0], [0.0], nx=1, ny=1))
+    write(workspace, "b_live", 72, record([2.0], [0.0], nx=1, ny=1))
+    bl.blend_lead(["a_live", "b_live", "c_live"], 72)   # c has no files
+    out = json.loads((workspace / "live_spread_latest_072.json").read_text())
+    assert out[0]["header"]["members"] == ["a_live", "b_live"]
+
+
+def test_no_blend_means_no_spread_file(workspace):
+    write(workspace, "a_live", 72, record([1.0], [0.0], nx=1, ny=1))
+    assert bl.blend_lead(["a_live", "b_live"], 72) is None
+    assert not (workspace / "live_spread_latest_072.json").exists()
+
+
+def test_blend_mean_is_rounded_to_two_decimals(workspace):
+    write(workspace, "a_live", 72, record([1.0], [0.0], nx=1, ny=1))
+    write(workspace, "b_live", 72, record([1.001], [0.0], nx=1, ny=1))
+    write(workspace, "c_live", 72, record([1.002], [0.0], nx=1, ny=1))
+    bl.blend_lead(["a_live", "b_live", "c_live"], 72)
+    out = json.loads((workspace / "live_blend_latest_072.json").read_text())
+    assert out[0]["data"] == [1.0]
