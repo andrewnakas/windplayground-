@@ -103,9 +103,11 @@ show a model's **error field vs ERA5** (2020 hindcasts), a live member's departu
 the multi-model mean, or the blend's **ensemble spread**. A skill panel plots every
 model's RMSE-vs-lead curve against the persistence floor and best-blend ceiling,
 straight from `docs/data/metrics.json` (exported from `artifacts/results/` — the viewer
-never hard-codes a score). Live sources carry a 10 m / 100 m (hub height) toggle and a
-data-age chip; they deliberately show **no** skill numbers, because no verifying truth
-exists yet for today's dates.
+never hard-codes a score). A level picker climbs the full column — 10 m and 100 m (hub
+height) live, and 850/700/500/250 hPa for ERA5 and the frontier archives via
+`scripts/export_levels.py`, each level on its own color scale (a 250 hPa jet is not a
+sea breeze). Live sources carry a data-age chip and deliberately show **no** skill
+numbers, because no verifying truth exists yet for today's dates.
 
 ## Live forecasts, and adding WeatherNext
 

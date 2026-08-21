@@ -210,7 +210,7 @@ def main() -> None:
     man["leads"] = sorted(set(man["leads"]) | set(keep_h))
     man["sources"] = [s for s in man["sources"] if s["id"] != source_id]
     man["sources"].append({"id": source_id, "label": label, "kind": "live",
-                           "level": args.level,
+                           "level": args.level, "base": spec["id"],
                            "inits": [init_label], "leads": keep_h,
                            # what the viewer shows as "init 06Z, 3 h ago"; the
                            # filename no longer carries it

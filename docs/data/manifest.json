@@ -506,7 +506,8 @@
         114,
         120
       ],
-      "init_time": "2026-08-20T18:00:00Z"
+      "init_time": "2026-08-20T18:00:00Z",
+      "base": "aifs_live"
     },
     {
       "id": "gfs_live",
@@ -572,7 +573,8 @@
         114,
         120
       ],
-      "init_time": "2026-08-20T18:00:00Z"
+      "init_time": "2026-08-20T18:00:00Z",
+      "base": "gfs_live"
     },
     {
       "id": "weathernext_live",
@@ -723,6 +725,507 @@
         102,
         108,
         114,
+        120
+      ],
+      "base": "live_blend"
+    },
+    {
+      "id": "era5850",
+      "label": "ERA5 (truth)",
+      "kind": "truth",
+      "base": "era5",
+      "level": "850hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "persistence850",
+      "label": "persistence",
+      "kind": "persistence",
+      "base": "persistence",
+      "level": "850hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "era5700",
+      "label": "ERA5 (truth)",
+      "kind": "truth",
+      "base": "era5",
+      "level": "700hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "persistence700",
+      "label": "persistence",
+      "kind": "persistence",
+      "base": "persistence",
+      "level": "700hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "era5500",
+      "label": "ERA5 (truth)",
+      "kind": "truth",
+      "base": "era5",
+      "level": "500hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "persistence500",
+      "label": "persistence",
+      "kind": "persistence",
+      "base": "persistence",
+      "level": "500hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "era5250",
+      "label": "ERA5 (truth)",
+      "kind": "truth",
+      "base": "era5",
+      "level": "250hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "persistence250",
+      "label": "persistence",
+      "kind": "persistence",
+      "base": "persistence",
+      "level": "250hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "graphcast850",
+      "label": "GraphCast (DeepMind)",
+      "kind": "competitor",
+      "base": "graphcast",
+      "level": "850hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "graphcast700",
+      "label": "GraphCast (DeepMind)",
+      "kind": "competitor",
+      "base": "graphcast",
+      "level": "700hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "graphcast500",
+      "label": "GraphCast (DeepMind)",
+      "kind": "competitor",
+      "base": "graphcast",
+      "level": "500hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "graphcast250",
+      "label": "GraphCast (DeepMind)",
+      "kind": "competitor",
+      "base": "graphcast",
+      "level": "250hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "gencast_mean850",
+      "label": "GenCast ensemble mean (DeepMind)",
+      "kind": "competitor",
+      "base": "gencast_mean",
+      "level": "850hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "gencast_mean700",
+      "label": "GenCast ensemble mean (DeepMind)",
+      "kind": "competitor",
+      "base": "gencast_mean",
+      "level": "700hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "gencast_mean500",
+      "label": "GenCast ensemble mean (DeepMind)",
+      "kind": "competitor",
+      "base": "gencast_mean",
+      "level": "500hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "pangu850",
+      "label": "Pangu-Weather (Huawei)",
+      "kind": "competitor",
+      "base": "pangu",
+      "level": "850hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "pangu700",
+      "label": "Pangu-Weather (Huawei)",
+      "kind": "competitor",
+      "base": "pangu",
+      "level": "700hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "pangu500",
+      "label": "Pangu-Weather (Huawei)",
+      "kind": "competitor",
+      "base": "pangu",
+      "level": "500hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "pangu250",
+      "label": "Pangu-Weather (Huawei)",
+      "kind": "competitor",
+      "base": "pangu",
+      "level": "250hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "hres850",
+      "label": "ECMWF HRES",
+      "kind": "competitor",
+      "base": "hres",
+      "level": "850hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "hres700",
+      "label": "ECMWF HRES",
+      "kind": "competitor",
+      "base": "hres",
+      "level": "700hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "hres500",
+      "label": "ECMWF HRES",
+      "kind": "competitor",
+      "base": "hres",
+      "level": "500hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "hres250",
+      "label": "ECMWF HRES",
+      "kind": "competitor",
+      "base": "hres",
+      "level": "250hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "fuxi850",
+      "label": "FuXi",
+      "kind": "competitor",
+      "base": "fuxi",
+      "level": "850hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
+        120
+      ]
+    },
+    {
+      "id": "fuxi500",
+      "label": "FuXi",
+      "kind": "competitor",
+      "base": "fuxi",
+      "level": "500hPa",
+      "inits": [
+        "2020-01-15T00",
+        "2020-07-15T00",
+        "2020-10-28T00"
+      ],
+      "leads": [
+        0,
+        24,
+        48,
+        72,
+        96,
         120
       ]
     }

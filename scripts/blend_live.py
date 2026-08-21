@@ -245,6 +245,7 @@ def main() -> None:
         labels = [s["label"].split("(")[0].strip() for s in live if s["id"] in members]
         entry = {
             "id": blend_id,
+            "base": BLEND_ID,
             "label": (f"Live multi-model mean ({' + '.join(labels)})" if level == "10m"
                       else f"Live multi-model mean @100 m ({' + '.join(labels)})"),
             "kind": "live",

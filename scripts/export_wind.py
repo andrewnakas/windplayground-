@@ -28,6 +28,9 @@ from windml.data.normalization import Normalizer, load_stats
 from windml.eval.forecasters import ModelForecaster, PersistenceForecaster
 
 U10, V10 = CHANNELS.index("u10"), CHANNELS.index("v10")
+# the scored channel set carries exactly one level aloft; deeper levels come
+# from scripts/export_levels.py, which streams WB2 directly (no torch needed)
+LEVEL_CHANNELS = {"10m": ("u10", "v10"), "850": ("u850", "v850")}
 STATS_PATH = ARTIFACTS / "data" / "stats.json"
 OUT_DIR = Path("docs/data")
 
@@ -138,6 +141,8 @@ def main() -> None:
                    help="init times inside the 2020 test year")
     p.add_argument("--leads", nargs="+", type=int, default=[0, 24, 48, 72, 96, 120])
     p.add_argument("--out", default=str(OUT_DIR))
+    p.add_argument("--level", default="10m", choices=sorted(LEVEL_CHANNELS),
+                   help="850 exports u850/v850 under ids like unet850")
     args = p.parse_args()
 
     torch.set_num_threads(1)  # stay out of the training run's way
@@ -164,6 +169,10 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     manifest = {"inits": args.inits, "leads": args.leads, "sources": []}
+
+    u_name, v_name = LEVEL_CHANNELS[args.level]
+    U, V = CHANNELS.index(u_name), CHANNELS.index(v_name)
+    suffix = "" if args.level == "10m" else args.level
 
     for src_id, label, kind, spec in SOURCES:
         forecaster = None
@@ -218,16 +227,16 @@ def main() -> None:
             wrote_here = False
             for lead in args.leads:
                 if lead == 0:
-                    u, v = truth[t0, U10], truth[t0, V10]   # analysis at init
+                    u, v = truth[t0, U], truth[t0, V]       # analysis at init
                 elif kind == "truth":
-                    u, v = truth[t0 + lead // 6, U10], truth[t0 + lead // 6, V10]
+                    u, v = truth[t0 + lead // 6, U], truth[t0 + lead // 6, V]
                 else:
                     f = fields[lead // 6 - 1]
                     if not np.isfinite(f).all():
                         continue        # e.g. 12-hourly models at odd leads
-                    u, v = f[U10], f[V10]
+                    u, v = f[U], f[V]
                 payload = velocity_records(u, v, lat, lon, f"{init_s}:00:00Z", lead)
-                (out_dir / f"{src_id}_{init_s}_{lead:03d}.json").write_text(
+                (out_dir / f"{src_id}{suffix}_{init_s}_{lead:03d}.json").write_text(
                     json.dumps(payload, separators=(",", ":")))
                 wrote_leads.add(lead)
                 wrote_here = True
@@ -237,30 +246,41 @@ def main() -> None:
             # per-source lists: the viewer filters its pickers by these, so a
             # live 2026 run and a 2020 research forecast can coexist
             entry = {
-                "id": src_id, "label": label, "kind": kind,
+                "id": src_id + suffix, "label": label, "kind": kind,
                 "inits": wrote_inits, "leads": sorted(wrote_leads),
             }
-            # the CSV name matches the source id for our models; competitors
-            # carry the _2020 suffix their result files use
-            rmse = scored_rmse(src_id) or scored_rmse(f"{src_id}_2020")
-            if rmse is not None:
-                entry["rmse72"] = round(rmse, 3)
+            if suffix:
+                entry["base"] = src_id
+                entry["level"] = f"{args.level}hPa"
+            else:
+                # the CSV name matches the source id for our models;
+                # competitors carry the _2020 suffix their result files use.
+                # 10 m only: rmse72 is a wind_speed score, and wind speed is
+                # only scored at the surface.
+                rmse = scored_rmse(src_id) or scored_rmse(f"{src_id}_2020")
+                if rmse is not None:
+                    entry["rmse72"] = round(rmse, 3)
             manifest["sources"].append(entry)
             print(f"exported {src_id}")
 
-    # keep live sources added by scripts/fetch_dynamical.py: they are fetched
-    # separately (and expensively), so a re-export must not drop them
+    # keep every source this run did not produce, as long as its files are
+    # all still on disk: live sources (fetched separately and expensively),
+    # level variants from export_levels.py or another --level run, and -- on a
+    # --level run -- the entire 10 m catalogue. A re-export must never
+    # silently drop a working source.
     man_path = out_dir / "manifest.json"
     if man_path.exists():
         old = json.loads(man_path.read_text())
-        live = [s for s in old.get("sources", []) if s.get("kind") == "live"
+        new_ids = {s["id"] for s in manifest["sources"]}
+        kept = [s for s in old.get("sources", [])
+                if s["id"] not in new_ids
                 and all((out_dir / f"{s['id']}_{i}_{ld:03d}.json").exists()
                         for i in s.get("inits", []) for ld in s.get("leads", []))]
-        if live:
-            manifest["sources"] += live
-            manifest["inits"] += [i for s in live for i in s.get("inits", [])
+        if kept:
+            manifest["sources"] += kept
+            manifest["inits"] += [i for s in kept for i in s.get("inits", [])
                                   if i not in manifest["inits"]]
-            print(f"kept {len(live)} live source(s)")
+            print(f"kept {len(kept)} existing source(s)")
     man_path.write_text(json.dumps(manifest, indent=2))
     total = sum(f.stat().st_size for f in out_dir.glob("*.json"))
     print(f"\n{len(manifest['sources'])} sources -> {out_dir} ({total/1e6:.1f} MB)")
