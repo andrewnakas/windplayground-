@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>windplayground — global wind viewer</title>
+<title>windplayground — live global wind</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='26'%3E%F0%9F%8C%AC%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="vendor/leaflet.css">
 <link rel="stylesheet" href="vendor/leaflet-velocity.css">
@@ -13,7 +13,14 @@
 <div id="map"></div>
 
 <div id="panel">
-  <h1>Global wind viewer</h1>
+  <div class="head">
+    <h1>windplayground</h1>
+    <span class="hlinks">
+      <a href="report.html">Research</a>
+      <a href="results.html">Results</a>
+      <a href="https://github.com/andrewnakas/windplayground-">GitHub</a>
+    </span>
+  </div>
   <div class="sub" id="sub">10&nbsp;m wind &middot; ERA5 truth vs. forecast models</div>
 
   <label for="source">Model</label>
