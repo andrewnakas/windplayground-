@@ -500,10 +500,5 @@
         "weathernext_live"
       ]
     }
-  ],
-  "grid": {
-    "nx": 64,
-    "ny": 32,
-    "note": "5.625 deg ERA5 grid"
-  }
+  ]
 }

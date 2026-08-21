@@ -88,7 +88,7 @@ If `--match-live` says the existing members are on a cycle WeatherNext does not
 have, re-fetch them onto a shared one rather than relaxing the check:
 
 ```bash
-python -m venv .venv-dyn && .venv-dyn/bin/pip install "zarr>=3" "xarray>=2025.1" numpy aiohttp
+python -m venv .venv-dyn && .venv-dyn/bin/pip install "zarr>=3" "xarray>=2025.1" numpy aiohttp fsspec
 .venv-dyn/bin/python scripts/fetch_dynamical.py --dataset aifs
 .venv-dyn/bin/python scripts/fetch_dynamical.py --dataset gfs
 ```

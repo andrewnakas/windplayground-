@@ -53,6 +53,19 @@
   .note { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line);
     font-size: 11px; color: var(--muted); }
   .note a { color: var(--accent); }
+  /* leaflet-velocity ships a white readout box; re-skin it to the panel theme */
+  .leaflet-control-velocity {
+    background: var(--panel) !important; color: var(--text) !important;
+    border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px;
+    font: 12px/1.4 ui-sans-serif, system-ui, sans-serif;
+  }
+  #age { display: none; margin-top: 10px; font-size: 12px; padding: 4px 8px;
+    border-radius: 8px; border: 1px solid var(--line); }
+  #age.fresh { display: block; color: #7ee2a8; border-color: #1d4a32; }
+  #age.aging { display: block; color: #ffd479; border-color: #5a4a1d; }
+  #age.stale { display: block; color: #ff8f8f; border-color: #5a1d1d; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn:disabled:hover { border-color: var(--line); }
   @media (max-width: 620px) { #panel { width: calc(100vw - 24px); } }
 </style>
 </head>
@@ -82,6 +95,7 @@
   </div>
 
   <div id="status">Loading…</div>
+  <div id="age"></div>
 
   <div class="legend">
     <div class="bar"></div>
@@ -93,7 +107,7 @@
     Research models are shown on the 5.625&deg; ERA5 grid they are scored on, so
     the animation is smooth but the data underneath is coarse. Live runs come
     from <a href="https://dynamical.org/" target="_blank" rel="noopener">dynamical.org</a>
-    at 1&deg;. Click the map for a wind readout.
+    at 2&deg;.
   </div>
 </div>
 
@@ -140,7 +154,8 @@
 
   // Leaflet's default overlayPane is z-index 400, which is where the particle
   // canvas goes; 350 puts the fill under it and 450 puts the coast over it.
-  // exposed so the screenshot test can drive the view and assert pane order
+  // deliberate debug/automation hook: verification steps drive the view and
+  // assert pane order through this handle from the browser console
   window.__map = map;
 
   map.createPane('landPane').style.zIndex = 350;
@@ -244,6 +259,21 @@
     leadSlider.max = String(leads.length - 1);
     const idx = leads.indexOf(prevLead);
     leadSlider.value = String(idx >= 0 ? idx : 0);
+
+    updateTruthBtn();
+    updateAgeChip(src);
+  }
+
+  // Freshness is this site's weak point (the refresh job is scheduled, not
+  // guaranteed), so surface data age instead of letting "live" go unchecked.
+  const ageEl = document.getElementById('age');
+  function updateAgeChip(src) {
+    if (src.kind !== 'live' || !src.init_time) { ageEl.className = ''; return; }
+    const hrs = (Date.now() - new Date(src.init_time).getTime()) / 3.6e6;
+    const h = Math.round(hrs);
+    if (hrs < 8) { ageEl.className = 'fresh'; ageEl.textContent = `● live — run is ${h} h old`; }
+    else if (hrs <= 18) { ageEl.className = 'aging'; ageEl.textContent = `● run is ${h} h old — next refresh due`; }
+    else { ageEl.className = 'stale'; ageEl.textContent = `● refresh may be stalled — data is ${h} h old`; }
   }
 
   let velocityLayer = null;
@@ -272,7 +302,7 @@
         displayOptions: {
           velocityType: '10 m wind',
           position: 'bottomleft',
-          emptyString: 'click the map for a wind readout',
+          emptyString: 'hover the map for a wind readout',
           angleConvention: 'bearingCW',
           speedUnit: 'm/s',
         },
@@ -298,13 +328,33 @@
     }
   }
 
-  sourceSel.addEventListener('change', () => { syncPickers(); render(); });
+  sourceSel.addEventListener('change', () => { resetTruthFlip(); syncPickers(); render(); });
   initSel.addEventListener('change', render);
   leadSlider.addEventListener('input', render);
 
   // Flip to ERA5 and back, so forecast error is visible by eye.
   const truthBtn = document.getElementById('truthBtn');
   let previous = null;
+
+  // A flip only makes sense where truth exists: the source and ERA5 must share
+  // an init. Live runs are from today and ERA5's archive is 2020, so for them
+  // the button is disabled rather than left to error out on a missing file.
+  function updateTruthBtn() {
+    if (previous !== null) { truthBtn.disabled = false; return; }
+    const era5 = byId['era5'];
+    const src = byId[sourceSel.value];
+    const shared = era5 && src && src.id !== 'era5'
+      && (src.inits || manifest.inits).some(t => (era5.inits || manifest.inits).includes(t));
+    truthBtn.disabled = !shared;
+    truthBtn.title = shared ? '' : 'no verifying truth exists yet for a live run';
+  }
+
+  function resetTruthFlip() {
+    previous = null;
+    truthBtn.classList.remove('on');
+    truthBtn.textContent = 'Compare vs ERA5';
+  }
+
   truthBtn.addEventListener('click', () => {
     if (previous === null) {
       if (sourceSel.value === 'era5') { say('Already showing ERA5 — pick a model to compare.'); return; }
@@ -314,10 +364,11 @@
       truthBtn.textContent = '↩ Back to model';
     } else {
       sourceSel.value = previous;
-      previous = null;
-      truthBtn.classList.remove('on');
-      truthBtn.textContent = 'Compare vs ERA5';
+      resetTruthFlip();
     }
+    // the pickers follow the source, so a flip must re-sync them too --
+    // otherwise a live source's "latest" init leaks into the ERA5 fetch
+    syncPickers();
     render();
   });
 

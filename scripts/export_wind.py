@@ -163,8 +163,7 @@ def main() -> None:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest = {"inits": args.inits, "leads": args.leads, "sources": [], "grid":
-                {"nx": len(lon), "ny": len(lat), "note": "5.625 deg ERA5 grid"}}
+    manifest = {"inits": args.inits, "leads": args.leads, "sources": []}
 
     for src_id, label, kind, spec in SOURCES:
         forecaster = None
