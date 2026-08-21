@@ -26,27 +26,32 @@
   <label for="source">Model</label>
   <select id="source"></select>
 
+  <details id="skill">
+    <summary>Model skill</summary>
+    <div id="skillBody"></div>
+  </details>
+
   <label for="init">Initialisation</label>
   <select id="init"></select>
 
-  <label for="lead">Forecast lead time</label>
-  <div class="row">
-    <input id="lead" type="range" min="0" max="0" step="1" value="0">
-    <output id="leadOut">+0 h</output>
-  </div>
+  <label>View</label>
+  <div class="units" id="viewCtl"></div>
+  <div class="units" id="levelCtl" style="display:none"></div>
+  <div class="units" id="errCtl" style="display:none; margin-top:6px"></div>
 
   <div class="btns">
-    <button class="btn" id="playBtn">▶ Animate leads</button>
-    <button class="btn" id="truthBtn">Compare vs ERA5</button>
     <button class="btn on" id="landBtn">Land</button>
+    <button class="btn on" id="shadeBtn" title="shade the map by wind speed">Shade</button>
+    <button class="btn" id="helpBtn" title="keyboard shortcuts">?</button>
   </div>
+  <div class="units" id="unitsCtl" role="group" aria-label="speed units"></div>
 
   <div id="status">Loading…</div>
   <div id="age"></div>
 
   <div class="legend">
-    <div class="bar"></div>
-    <div class="ticks"><span>0</span><span>5</span><span>10</span><span>15</span><span>20+ m/s</span></div>
+    <div class="bar" id="legendBar"></div>
+    <div class="ticks" id="legendTicks"></div>
   </div>
 
   <div class="note">
@@ -55,6 +60,49 @@
     the animation is smooth but the data underneath is coarse. Live runs come
     from <a href="https://dynamical.org/" target="_blank" rel="noopener">dynamical.org</a>
     at 2&deg;.
+  </div>
+</div>
+
+<button id="panelToggle" aria-label="toggle controls">☰</button>
+
+<aside id="meteo" hidden>
+  <div class="meteo-head">
+    <div>
+      <div id="meteoTitle">—</div>
+      <div id="meteoSub" class="skill-note"></div>
+    </div>
+    <button class="btn" id="meteoClose" aria-label="close">✕</button>
+  </div>
+  <div id="meteoChart"></div>
+  <div class="skill-note" id="meteoNote"></div>
+</aside>
+
+<div id="timeline">
+  <button class="btn" id="playBtn" title="play through the forecast">▶</button>
+  <button class="btn" id="speedBtn" title="playback speed">1×</button>
+  <div class="tl-main">
+    <div class="tl-head">
+      <span id="validTime">—</span>
+      <output id="leadOut">+0 h</output>
+    </div>
+    <input id="lead" type="range" min="0" max="0" step="1" value="0">
+    <div id="tlTicks"></div>
+  </div>
+</div>
+
+<div id="help" hidden>
+  <div class="help-card">
+    <h2>Keyboard</h2>
+    <table>
+      <tr><td>space</td><td>play / pause</td></tr>
+      <tr><td>← →</td><td>step lead time</td></tr>
+      <tr><td>↑ ↓</td><td>previous / next model</td></tr>
+      <tr><td>u</td><td>cycle speed units</td></tr>
+      <tr><td>e</td><td>error view (when available)</td></tr>
+      <tr><td>s</td><td>toggle speed shading</td></tr>
+      <tr><td>?</td><td>this help</td></tr>
+    </table>
+    <div class="skill-note">click anywhere to close</div>
   </div>
 </div>
 
