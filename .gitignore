@@ -22,3 +22,13 @@ artifacts/checkpoints/_running/
 kaggle.json
 *.kaggle.json
 artifacts/kaggle/
+
+# Live data is fetched fresh at every deploy and shipped only in the Pages
+# artifact -- committing hourly forecasts would grow the repo without bound.
+# WeatherNext stays committed: CI has no Google credentials to re-fetch it.
+docs/data/aifs*_latest_*.json
+docs/data/gfs*_latest_*.json
+docs/data/hrrr*_latest_*.json
+docs/data/ifs*_latest_*.json
+docs/data/live_blend*_latest_*.json
+docs/data/live_spread*_latest_*.json

@@ -24,9 +24,14 @@ exec(compile(ast.Module(body=wanted, type_ignores=[]), "<fetch_dynamical>", "exe
 select_leads, DEFAULT_LEADS = mod.select_leads, mod.DEFAULT_LEADS
 
 
-def test_default_is_the_full_six_hourly_ladder():
-    assert DEFAULT_LEADS == list(range(0, 121, 6))
-    assert len(DEFAULT_LEADS) == 21
+def test_default_is_the_full_hourly_ladder():
+    assert DEFAULT_LEADS == list(range(0, 121))
+    assert len(DEFAULT_LEADS) == 121
+
+
+def test_six_hourly_store_keeps_its_native_cadence():
+    # AIFS publishes 6-hourly; the hourly request intersects down to 21 rungs
+    assert select_leads(DEFAULT_LEADS, set(range(0, 121, 6))) ==         list(range(0, 121, 6))
 
 
 def test_absent_leads_are_dropped_not_fatal():

@@ -213,18 +213,29 @@ def main() -> None:
     man_path = OUT_DIR / "manifest.json"
     man = json.loads(man_path.read_text())
 
-    # 10 m and 100 m are separate products with separate members; averaging
-    # across heights would be meaningless, so each level blends on its own.
+    # Every level is its own product with its own members; averaging across
+    # heights would be meaningless, so each blends on its own. The level list
+    # comes from the manifest, so new rungs (925 hPa from ECMWF open data, a
+    # future 80 m pair) blend the moment two members exist there.
+    def level_suffix(level: str) -> str:
+        return "" if level == "10m" else level.replace("hPa", "").replace("m", "")
+
+    all_levels = sorted({s.get("level", "10m") for s in man["sources"]
+                         if s.get("kind") == "live"
+                         and not s.get("domain")
+                         and not s["id"].startswith(BLEND_ID)},
+                        key=lambda x: (x != "10m", x))
     blended_any = False
     newest_ref = None
-    for level, blend_id, spread_id in (("10m", BLEND_ID, SPREAD_ID),
-                                       ("100m", BLEND_ID + "100", SPREAD_ID + "100")):
+    for level in all_levels:
+        blend_id = BLEND_ID + level_suffix(level)
+        spread_id = SPREAD_ID + level_suffix(level)
         live = [s for s in man["sources"]
                 if s.get("kind") == "live"
                 and s.get("level", "10m") == level
                 and not s.get("domain")     # regional grids cannot join a
                                             # global mean (CONUS != the world)
-                and s["id"] not in (BLEND_ID, BLEND_ID + "100")]
+                and not s["id"].startswith(BLEND_ID)]
         members = a.members or [s["id"] for s in live]
         members = [m for m in members if m in {s["id"] for s in live}]
         if len(members) < 2:
@@ -233,7 +244,16 @@ def main() -> None:
             continue                     # no 100 m fleet yet: nothing to do
         leads = sorted({ld for s in live if s["id"] in members for ld in s["leads"]})
         print(f"windml level={level} members={members} candidate_leads={leads}")
-        members = align_members(members, leads)
+        try:
+            members = align_members(members, leads)
+        except SystemExit as e:
+            # the surface blend is the site's headline product and must fail
+            # loudly; an upper level with no shared cycle yet (AIFS publishes
+            # hours before IFS) simply sits this refresh out
+            if level == "10m":
+                raise
+            print(f"windml level={level} skipped: {e}")
+            continue
         print(f"windml level={level} blending members={members}")
 
         done, ref = [], None
@@ -254,7 +274,8 @@ def main() -> None:
             "id": blend_id,
             "base": BLEND_ID,
             "label": (f"Live multi-model mean ({' + '.join(labels)})" if level == "10m"
-                      else f"Live multi-model mean @100 m ({' + '.join(labels)})"),
+                      else f"Live multi-model mean @{level.replace('hPa', ' hPa')} "
+                           f"({' + '.join(labels)})"),
             "kind": "live",
             "level": level,
             "inits": ["latest"],

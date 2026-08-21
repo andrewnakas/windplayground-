@@ -1,30 +1,27 @@
+# Refresh live wind and deploy the site -- the ONLY deploy path.
+#
+# Live data is not committed: every run fetches the newest cycles (dynamical
+# .org zarrs, the NOAA HRRR AWS archive, ECMWF open data), blends, rebuilds,
+# and ships everything in the Pages artifact. Pushes to main (code, hindcast
+# data, the Mac's WeatherNext export) trigger the same full refresh, so the
+# deployed site is never older than the newest available data.
+#
+# Inherited from the retired pages.yml, learned the hard way: this workflow
+# must live on the DEFAULT branch -- the github-pages environment rejects
+# deployments from any other ref before the first step runs -- and it must
+# have no `paths:` filter, which once silently skipped a 252-file deploy.
 name: Refresh live wind
-
-# Keeps the "live" sources in the viewer actually live. dynamical.org serves
-# `.../latest.zarr`, so re-running the fetcher is all it takes -- the site is
-# static, and the freshness comes from redeploying it rather than from anything
-# running at view time.
-#
-# Runs every 6 h to match the operational forecast cycle. Commits ONLY when the
-# init time has moved: the JSON filenames are fixed ("..._latest_072.json"), so
-# an unchanged run produces an identical tree and no commit, which keeps this
-# from filling the history with noise.
-#
-# This job DEPLOYS PAGES ITSELF rather than relying on pages.yml firing from
-# its push. GitHub deliberately does not trigger workflows for pushes made with
-# the built-in GITHUB_TOKEN -- that is its infinite-loop guard -- so a
-# "push and let the other workflow handle it" design would commit fresh data
-# and then never publish it. The commit keeps the repo the source of truth; the
-# deploy step is what makes the site actually change.
 
 on:
   schedule:
-    - cron: '20 2,8,14,20 * * *'   # ~2 h after each 00/06/12/18Z cycle lands
+    - cron: '20 2,8,14,20 * * *'   # ~2 h after the 00/06/12/18Z cycles
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
-  contents: write   # commit the refreshed JSON
-  pages: write      # and publish it ourselves
+  contents: read
+  pages: write
   id-token: write
 
 concurrency:
@@ -51,7 +48,7 @@ jobs:
           # zarr>=3 is required for dynamical.org's Zarr v3 / Icechunk store and
           # conflicts with the training env's pinned zarr<3, which is why this
           # is a standalone install rather than the project's own environment.
-          python -m pip install --quiet "zarr>=3" "xarray>=2025.1" numpy aiohttp fsspec pandas pyyaml
+          python -m pip install --quiet "zarr>=3" "xarray>=2025.1" numpy aiohttp fsspec pandas pyyaml scipy ecmwf-opendata cfgrib eccodes
 
       - name: Fetch live forecasts
         run: |
@@ -72,6 +69,15 @@ jobs:
               || echo "hrrr $level failed, keeping previous data"
             echo "::endgroup::"
           done
+          echo "::group::hrrr pressure levels"
+          python scripts/fetch_hrrr_levels.py || echo "hrrr levels failed"
+          echo "::endgroup::"
+          for m in aifs ifs; do
+            echo "::group::ecmwf open data $m"
+            python scripts/fetch_ecmwf_open.py --model "$m" \
+              --levels 925 850 700 500 300 250 200 || echo "ecmwf $m failed"
+            echo "::endgroup::"
+          done
 
       - name: Blend the live members
         run: |
@@ -90,29 +96,9 @@ jobs:
         # without dragging in torch or downgrading zarr.
         run: PYTHONPATH=src python scripts/build_site.py
 
-      - name: Commit if the forecast actually moved
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs
-          if git diff --cached --quiet; then
-            echo "no change -- same init time, nothing to deploy"
-            exit 0
-          fi
-          INIT=$(python -c "import json;m=json.load(open('docs/data/manifest.json'));print(next((s.get('init_time','?') for s in m['sources'] if s['kind']=='live'),'?'))")
-          git commit -m "Live wind refresh: init $INIT"
-          git push
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-        id: commit
-
-      # Only publish when something actually changed -- a no-op cycle should
-      # not burn a Pages deployment.
       - uses: actions/configure-pages@v5
-        if: steps.commit.outputs.changed == 'true'
       - uses: actions/upload-pages-artifact@v3
-        if: steps.commit.outputs.changed == 'true'
         with:
           path: docs
       - uses: actions/deploy-pages@v4
-        if: steps.commit.outputs.changed == 'true'
         id: deployment

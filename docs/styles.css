@@ -159,3 +159,7 @@
   #meteo { top: auto; bottom: 84px; left: 8px; right: 8px; width: auto;
     max-height: 46vh; }
 }
+
+/* ten rungs of atmosphere need a second row on a 330px panel */
+#levelCtl { flex-wrap: wrap; max-width: 100%; }
+#levelCtl button { flex: 0 0 auto; }

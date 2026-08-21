@@ -23,10 +23,10 @@ export PATH="/opt/homebrew/bin:/usr/bin:/bin:$PATH"
 if [[ "${1:-}" == "--install" ]]; then
   mkdir -p "$WORK" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
   [[ -d "$CLONE/.git" ]] || git clone -q "$REPO_URL" "$CLONE"
-  [[ -x "$VENV/bin/python" ]] || {
-    python3 -m venv "$VENV"
-    "$VENV/bin/pip" install --quiet google-cloud-bigquery pandas pyyaml
-  }
+  [[ -x "$VENV/bin/python" ]] || python3 -m venv "$VENV"
+  "$VENV/bin/pip" install --quiet google-cloud-bigquery pandas pyyaml \
+    "zarr>=3" "xarray>=2025.1" numpy aiohttp fsspec scipy \
+    ecmwf-opendata cfgrib eccodes
   # 21:50/03:50/09:50/15:50 MDT == 03:50/09:50/15:50/21:50 UTC (launchd runs
   # on local time; a DST shift skews this an hour, which --match-live absorbs)
   cat > "$PLIST" <<PLIST
@@ -73,12 +73,16 @@ git checkout -q main
 git fetch -q origin
 git reset -q --hard origin/main   # this clone holds no work of its own
 
+# a quick AIFS surface fetch pins the current global cycle in the local
+# manifest, so --match-live exports WeatherNext onto the init that will
+# actually blend. ECMWF open data, not the dynamical mirror: it publishes
+# hours earlier and is what CI itself uses for AIFS surface now. The files
+# are gitignored -- only the WeatherNext export travels through git.
+"$VENV/bin/python" scripts/fetch_ecmwf_open.py --model aifs --surface-only
 "$VENV/bin/python" scripts/wn_export_local.py --export --project tree-sixty \
   --table tree-sixty.weathernext_2_mean.weathernext_2_0_0_mean --match-live
-python3 scripts/blend_live.py
-PYTHONPATH=src python3 scripts/build_site.py
 
-git add docs
+git add docs/data/weathernext_live_*.json docs/data/manifest.json
 if git diff --cached --quiet; then
   echo "no change -- WeatherNext already on this cycle"
   exit 0
@@ -87,4 +91,4 @@ INIT=$(python3 -c "import json;m=json.load(open('docs/data/manifest.json'));prin
 git commit -q -m "WeatherNext refresh: init $INIT"
 git push -q origin main
 git push -q origin main:claude/wind-forecast-ml-research-veu6d5 || true
-echo "pushed init $INIT"
+echo "pushed init $INIT -- the push triggers the full CI refresh + deploy"

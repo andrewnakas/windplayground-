@@ -93,12 +93,13 @@ OUT_DIR = Path("docs/data")
 DATASET_LEVELS = {"aifs": ("10m", "100m"), "gfs": ("10m", "100m"),
                   "gefs": ("10m",), "hrrr": ("10m", "80m")}
 
-# Full 6-hourly ladder to +120 h. AIFS is 6-hourly and GFS hourly upstream, so
-# every rung exists for both; 21 leads at 2 degrees is ~3 MB per model per
-# refresh, the price of a scrubber and meteogram that move in 6 h steps
-# instead of 24. WeatherNext is 6-hourly too (from +6), so the blend keeps
-# every rung as well.
-DEFAULT_LEADS = list(range(0, 121, 6))
+# HOURLY to +120 h. select_leads() intersects with what each store carries,
+# so GFS gets all 121 rungs, HRRR its 49, and AIFS falls back to its native
+# 6-hourly 21 -- as does the blend, which only averages leads where two
+# members exist. Live data is no longer committed (it is fetched fresh at
+# every deploy and shipped only in the Pages artifact), so lead count is an
+# artifact-size question, not a git-churn one.
+DEFAULT_LEADS = list(range(0, 121))
 
 
 def bin_regrid(lat2d, lon2d, fields: list, res: float):
@@ -207,7 +208,13 @@ def main() -> None:
         raise SystemExit(f"{args.dataset} has no {args.level} wind; "
                          f"it offers {DATASET_LEVELS[args.dataset]}")
     print(f"opening {spec['url']} ...")
-    ds = xr.open_zarr(spec["url"], chunks=None, consolidated=True)
+    # hourly leads pull an order of magnitude more chunks than the old
+    # 6-hourly ladder; the default aiohttp read timeout gives up mid-download
+    import aiohttp
+    ds = xr.open_zarr(
+        spec["url"], chunks=None, consolidated=True,
+        storage_options={"client_kwargs": {
+            "timeout": aiohttp.ClientTimeout(total=3600, sock_read=300)}})
 
     init = ds.init_time.values[-1]            # most recent run
     print(f"latest init_time: {init}")

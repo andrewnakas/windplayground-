@@ -141,14 +141,17 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
   // picker shows only base (10 m) sources; this control swaps the id
   // render() actually loads. Which rungs exist varies by source: live feeds
   // stop at 100 m, FuXi's archive carries 850/500 only, ERA5 has them all.
-  const LEVEL_ORDER = ['10m', '80m', '100m', '850hPa', '700hPa', '500hPa', '250hPa'];
+  const LEVEL_ORDER = ['10m', '80m', '100m', '925hPa', '850hPa', '700hPa',
+                       '500hPa', '300hPa', '250hPa', '200hPa'];
   const LEVEL_LABEL = { '10m': '10 m', '80m': '80 m', '100m': '100 m',
-                        '850hPa': '850', '700hPa': '700', '500hPa': '500',
-                        '250hPa': '250 hPa' };
+                        '925hPa': '925', '850hPa': '850', '700hPa': '700',
+                        '500hPa': '500', '300hPa': '300', '250hPa': '250',
+                        '200hPa': '200 hPa' };
   // top of the color scale per level (m/s): the jet stream runs 3-4x surface
   // speeds, and one fixed 0-25 ramp would saturate the entire upper air
-  const LEVEL_MAX = { '10m': 25, '80m': 28, '100m': 30, '850hPa': 40,
-                      '700hPa': 45, '500hPa': 60, '250hPa': 90 };
+  const LEVEL_MAX = { '10m': 25, '80m': 28, '100m': 30, '925hPa': 35,
+                      '850hPa': 40, '700hPa': 45, '500hPa': 60, '300hPa': 80,
+                      '250hPa': 90, '200hPa': 95 };
   const variants = {};
   for (const s of manifest.sources)
     if (s.level && s.base) (variants[s.base] ??= {})[s.level] = s.id;
@@ -181,7 +184,8 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
       b.classList.toggle('on', mode === levelMode);
       b.addEventListener('click', () => {
         levelMode = mode;
-        updateLevelCtl(); updateViewCtl(); renderSkill(); render();
+        syncPickers();               // leads/ticks follow the level's schedule
+        renderSkill(); render();
       });
       levelCtl.appendChild(b);
     }
@@ -216,13 +220,19 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
     }
     if (inits.includes(wanted)) initSel.value = wanted;
 
-    leads = src.leads || manifest.leads;
-    const prevLead = leads[Number(leadSlider.value)] ?? leads[0];
+    updateLevelCtl();               // validates levelMode BEFORE leads follow it
+    const eff = byId[effId()] ?? src;
+    const prevLead = leads[Number(leadSlider.value)];
+    leads = eff.leads || src.leads || manifest.leads;
     leadSlider.max = String(leads.length - 1);
-    const idx = leads.indexOf(prevLead);
+    // keep the same VALID TIME when the schedule changes; an hour the new
+    // schedule lacks snaps to the nearest lead it has
+    let idx = leads.indexOf(prevLead);
+    if (idx < 0 && prevLead != null)
+      idx = leads.reduce((b, h, i) =>
+        Math.abs(h - prevLead) < Math.abs(leads[b] - prevLead) ? i : b, 0);
     leadSlider.value = String(idx >= 0 ? idx : 0);
 
-    updateLevelCtl();
     updateViewCtl();
     updateAgeChip(src);
     renderSkill();
@@ -254,7 +264,8 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
       if (d.getUTCHours() === 0) {
         el.className = 'day';
         el.textContent = `${DAYS[d.getUTCDay()]} ${d.getUTCDate()}`;
-      } else if (leads.length <= 9 || d.getUTCHours() === 12) {
+      } else if (leads.length <= 9 ||
+                 (leads.length <= 30 && d.getUTCHours() === 12)) {
         el.textContent = `${String(d.getUTCHours()).padStart(2, '0')}Z`;
       }
       ticksEl.appendChild(el);
@@ -433,7 +444,7 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
   // Bounded LRU: a full live source is ~21 fields x ~150 KB parsed; sixty
   // entries covers three sources warm without letting an afternoon of
   // browsing hold every field ever seen.
-  const CACHE_MAX = 60;
+  const CACHE_MAX = 160;
 
   async function loadField(sourceId, init, lead) {
     const key = `${sourceId}_${init}_${String(lead).padStart(3, '0')}`;
@@ -454,9 +465,14 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
   // and playback never fetch-stall. The token cancels a sweep the moment the
   // selection moves on.
   let prefetchToken = 0;
+  const PREFETCH_MAX = 48;
   function prefetchLeads() {
     const token = ++prefetchToken;
-    const sourceId = effId(), init = initSel.value, want = [...leads];
+    const sourceId = effId(), init = initSel.value;
+    // hourly sources carry 121 leads; warm forward from the playhead and wrap,
+    // capped so an idle tab never quietly pulls the whole set
+    const at = Number(leadSlider.value);
+    const want = leads.slice(at).concat(leads.slice(0, at)).slice(0, PREFETCH_MAX);
     const run = async () => {
       for (const h of want) {
         if (token !== prefetchToken) return;
@@ -567,7 +583,7 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
         return;
       }
       if (viewMode === 'spread') {
-        const spreadFile = src.level === '100m' ? 'live_spread100' : 'live_spread';
+        const spreadFile = 'live_spread' + levelSuffix(src.level);
         const [rec, data] = await Promise.all([
           loadField(spreadFile, init, lead), loadField(sourceId, init, lead)]);
         showVelocity(data);
@@ -621,6 +637,12 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
   // The reference a source can honestly be compared against: hindcasts have
   // ERA5 truth at the same init; a live member only has the blend -- a
   // consistency check, not verification. The blend itself has its spread.
+  // '' at 10 m, '100' at 100 m, '850' at 850 hPa: the id suffix every
+  // derived product (blend, spread) uses for its level variants
+  function levelSuffix(level) {
+    return !level || level === '10m' ? '' : level.replace('hPa', '').replace('m', '');
+  }
+
   function refFor(src) {
     if (src.kind === 'truth') return null;
     if (src.kind === 'live') {
@@ -628,7 +650,7 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
       // a regional grid has no same-grid reference: diffing 0.2-degree CONUS
       // against the 2-degree global blend cell-by-cell would be nonsense
       if (src.domain) return null;
-      return byId[src.level === '100m' ? BLEND_SOURCE + '100' : BLEND_SOURCE] ?? null;
+      return byId[BLEND_SOURCE + levelSuffix(src.level)] ?? null;
     }
     // hindcast: truth at the SAME level, or plain era5 at the surface
     if (src.level) return byId[variants['era5']?.[src.level]] ?? null;
@@ -803,8 +825,8 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
     const src = byId[effId()];
     const init = initSel.value;
     const live = src.kind === 'live';
-    const blendId = src.level === '100m' ? BLEND_SOURCE + '100' : BLEND_SOURCE;
-    const spreadFile = src.level === '100m' ? 'live_spread100' : 'live_spread';
+    const blendId = BLEND_SOURCE + levelSuffix(src.level);
+    const spreadFile = 'live_spread' + levelSuffix(src.level);
     const blend = byId[blendId];
 
     // Which lines: live context reads the blend against its members; a

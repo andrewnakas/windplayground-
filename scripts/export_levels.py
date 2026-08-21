@@ -40,7 +40,7 @@ ARCHIVES = [
     ("fuxi", "FuXi",
      "gs://weatherbench2/datasets/fuxi/2020-64x32_equiangular_conservative.zarr"),
 ]
-DEFAULT_LEVELS = [850, 700, 500, 250]
+DEFAULT_LEVELS = [925, 850, 700, 500, 300, 250, 200]
 ANON = {"token": "anon"}
 
 
