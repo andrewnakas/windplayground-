@@ -75,7 +75,7 @@ DATASETS = {
         "skip_scheduled": True,
     },
 }
-OUT_DIR = Path("viewer/data")
+OUT_DIR = Path("docs/data")
 
 
 def velocity_records(u, v, lat, lon, ref_time: str, forecast_hours: int) -> list:

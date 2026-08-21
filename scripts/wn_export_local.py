@@ -14,7 +14,7 @@ six small JSON files, and you commit them.
     python scripts/wn_export_local.py --export --project treesixty \
         --table treesixty.<dataset>.weathernext_2_0_0_mean --match-live
     python scripts/blend_live.py && python scripts/build_site.py
-    git add viewer/data docs && git commit -m "weathernext live" && git push
+    git add docs && git commit -m "weathernext live" && git push
 
 **If WeatherNext was granted to a service account, add `--impersonate`.** A
 service-account email is not a credential -- it is the principal a grant
@@ -29,7 +29,7 @@ not work". Acting as the granted account needs
 Every run prints the principal it is acting as before anything else, so "no
 datasets visible" is a diagnosable answer rather than a dead end.
 
-Output is ~0.1 MB per lead, so under 1 MB total. It lands in `viewer/data/` in
+Output is ~0.1 MB per lead, so under 1 MB total. It lands in `docs/data/` in
 exactly the layout `scripts/fetch_dynamical.py` produces, which means
 `scripts/blend_live.py` picks WeatherNext up as another live member with no
 further changes — and its grid and init-time guards then apply automatically, so
@@ -70,7 +70,7 @@ import math
 import pathlib
 import sys
 
-OUT_DIR = pathlib.Path("viewer/data")
+OUT_DIR = pathlib.Path("docs/data")
 SOURCE_ID = "weathernext_live"
 LABEL = "Google WeatherNext (frontier ML) — live"
 LEADS = [0, 24, 48, 72, 96, 120]

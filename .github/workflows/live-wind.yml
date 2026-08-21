@@ -85,12 +85,12 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add viewer/data docs
+          git add docs
           if git diff --cached --quiet; then
             echo "no change -- same init time, nothing to deploy"
             exit 0
           fi
-          INIT=$(python -c "import json;m=json.load(open('viewer/data/manifest.json'));print(next((s.get('init_time','?') for s in m['sources'] if s['kind']=='live'),'?'))")
+          INIT=$(python -c "import json;m=json.load(open('docs/data/manifest.json'));print(next((s.get('init_time','?') for s in m['sources'] if s['kind']=='live'),'?'))")
           git commit -m "Live wind refresh: init $INIT"
           git push
           echo "changed=true" >> "$GITHUB_OUTPUT"

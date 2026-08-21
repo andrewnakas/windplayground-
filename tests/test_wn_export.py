@@ -72,7 +72,7 @@ def test_json_matches_the_grid_blend_live_requires():
 def test_grid_header_is_identical_to_the_existing_live_sources():
     """Byte-compatible with fetch_dynamical.py's export, or the blend refuses."""
     import json
-    live = Path("viewer/data/aifs_live_latest_072.json")
+    live = Path("docs/data/aifs_live_latest_072.json")
     if not live.exists():
         pytest.skip("no live sample committed")
     ref = json.loads(live.read_text())[0]["header"]

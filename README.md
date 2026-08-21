@@ -117,7 +117,7 @@ gcloud auth application-default login
 pip install google-cloud-bigquery
 python scripts/wn_export_local.py --probe  --project YOUR_PROJECT   # schema, free
 python scripts/wn_export_local.py --export --project YOUR_PROJECT --table PROJ.DS.TABLE
-git add viewer/data && git commit -m "weathernext live" && git push
+git add docs/data && git commit -m "weathernext live" && git push
 ```
 
 It uses your existing Application Default Credentials, dry-runs every query and refuses

@@ -29,7 +29,7 @@ from windml.eval.forecasters import ModelForecaster, PersistenceForecaster
 
 U10, V10 = CHANNELS.index("u10"), CHANNELS.index("v10")
 STATS_PATH = ARTIFACTS / "data" / "stats.json"
-OUT_DIR = Path("viewer/data")
+OUT_DIR = Path("docs/data")
 
 # Every trained checkpoint the picker offers, newest lineage last. A model only
 # appears if its best.pt exists, so a partly-trained repo still exports cleanly.

@@ -34,7 +34,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-OUT_DIR = Path("viewer/data")
+OUT_DIR = Path("docs/data")
 BLEND_ID = "live_blend"
 # the grid fields that must agree before two forecasts can be averaged
 GRID_KEYS = ("nx", "ny", "la1", "lo1", "la2", "lo2", "dx", "dy", "forecastTime")

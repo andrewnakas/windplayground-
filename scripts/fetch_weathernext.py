@@ -42,7 +42,7 @@ import pathlib
 import sys
 import tempfile
 
-OUT_DIR = pathlib.Path("viewer/data")
+OUT_DIR = pathlib.Path("docs/data")
 SOURCE_ID = "weathernext_live"
 LABEL = "Google WeatherNext (frontier ML) — live"
 LEADS = [0, 24, 48, 72, 96, 120]

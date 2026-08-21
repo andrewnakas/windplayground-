@@ -113,7 +113,7 @@ a cycle or two WeatherNext is behind, and `blend_live.py` prints
 mean instead. Nothing is broken; the site stays current and the viewer label
 drops back to two models. Re-run steps 2–4 to put WeatherNext back in.
 
-**Look at the map before you push.** Open `docs/viewer/index.html`, pick "Live
+**Look at the map before you push.** Open `docs/index.html`, pick "Live
 multi-model mean" and confirm particles are moving over land as well as ocean.
 A previous fix in this project was shipped without looking at the render and was
 aimed at the wrong bug entirely.
@@ -121,7 +121,7 @@ aimed at the wrong bug entirely.
 ## 4. Publish
 
 ```bash
-git add viewer/data docs
+git add docs
 git commit -m "weathernext live"
 git push -u origin claude/wind-forecast-ml-research-veu6d5
 ```
