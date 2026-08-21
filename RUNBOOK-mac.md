@@ -91,6 +91,9 @@ have, re-fetch them onto a shared one rather than relaxing the check:
 python -m venv .venv-dyn && .venv-dyn/bin/pip install "zarr>=3" "xarray>=2025.1" numpy aiohttp fsspec
 .venv-dyn/bin/python scripts/fetch_dynamical.py --dataset aifs
 .venv-dyn/bin/python scripts/fetch_dynamical.py --dataset gfs
+# the viewer's 10 m / 100 m toggle reads these; skip them and 100 m just goes stale
+.venv-dyn/bin/python scripts/fetch_dynamical.py --dataset aifs --level 100m
+.venv-dyn/bin/python scripts/fetch_dynamical.py --dataset gfs --level 100m
 ```
 
 ## 3. Blend and rebuild

@@ -73,7 +73,7 @@ import sys
 OUT_DIR = pathlib.Path("docs/data")
 SOURCE_ID = "weathernext_live"
 LABEL = "Google WeatherNext (frontier ML) — live"
-LEADS = [0, 24, 48, 72, 96, 120]
+LEADS = list(range(0, 121, 6))   # the mean table starts at +6; 0 just warns
 
 # The viewer grid the other live sources use. blend_live.py requires an exact
 # match, so these are fixed, not tunable.
