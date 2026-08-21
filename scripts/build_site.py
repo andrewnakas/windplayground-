@@ -194,7 +194,7 @@ def rt2021_score(variable: str, lead: int = 72) -> float | None:
 # with null where a model has no forecast (12-hourly models on odd leads,
 # direct-72h models everywhere but 72).
 LEAD_HOURS = list(range(6, 121, 6))
-METRIC_VARS = ("wind_speed", "u10", "v10")
+METRIC_VARS = ("wind_speed", "u10", "v10", "u850", "v850")
 
 PROVENANCE = ("Latitude-weighted RMSE/ACC vs ERA5 on the 64x32 grid, 2020 test "
               "year. Live operational runs are NOT verified here: no truth "
