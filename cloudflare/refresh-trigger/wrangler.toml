@@ -1,0 +1,27 @@
+name = "windplayground-refresh"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# Every 20 minutes: probe upstream, dispatch the GitHub refresh only when the
+# deployed site is actually behind. The probes are HEAD requests; the check
+# itself costs nothing that matters.
+[triggers]
+crons = ["*/20 * * * *"]
+
+[vars]
+SITE = "https://andrewnakas.github.io/windplayground-"
+REPO = "andrewnakas/windplayground-"
+WORKFLOW = "live-wind.yml"
+# floor between dispatches: each refresh re-fetches every upstream source, so
+# be a good citizen toward ECMWF/dynamical even though Actions minutes are free
+MIN_INTERVAL_MIN = "75"
+# dispatch for HRRR alone only when the deployed HRRR run is this far behind
+# the newest complete cycle (it inits hourly; global cycles pace the rest)
+HRRR_STALE_H = "4"
+# absolute safety net: refresh regardless if the newest deployed global init
+# is older than this (catches a silently broken probe; must exceed the ~11 h a
+# cycle is legitimately old right before its successor publishes)
+MAX_AGE_H = "12"
+
+# secret (set with: wrangler secret put GH_TOKEN):
+#   a GitHub token with workflow-dispatch rights on the repo
