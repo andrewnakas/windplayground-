@@ -1,9 +1,9 @@
 """Build the docs/ site for GitHub Pages from the repo's markdown and results.
 
-Renders REPORT.md and RESULTS.md to styled HTML, copies the wind viewer and
-figures, and writes a landing page whose headline numbers are read from
-artifacts/results/ rather than hard-coded, so the site cannot drift from the
-scores it claims.
+Renders REPORT.md and RESULTS.md to styled HTML and copies the wind viewer's
+code files to the docs root, where the viewer IS the landing page. Data is not
+copied: docs/data is its single home, written directly by the export/fetch
+scripts, and this build must never delete it.
 
     python scripts/build_site.py
 
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import html
+from datetime import datetime, timezone
 import re
 import shutil
 
@@ -63,12 +64,21 @@ footer{margin-top:60px;padding-top:18px;border-top:1px solid var(--line);color:v
 
 NAV = """<nav><div class="wrap">
 <span class="brand">windplayground</span>
-<a href="{p}index.html">Overview</a>
-<a href="{p}viewer/index.html">Wind viewer</a>
+<a href="{p}index.html">Wind map</a>
 <a href="{p}report.html">Research</a>
 <a href="{p}results.html">Results</a>
 <a href="https://github.com/andrewnakas/windplayground-">GitHub</a>
 </div></nav>"""
+
+# The viewer's code files, copied verbatim to the docs root. The map IS the
+# landing page; data/ and vendor/ sit beside it so its relative fetches work
+# unchanged. Listed explicitly so a stray file in viewer/ never ships.
+VIEWER_FILES = ("index.html", "styles.css", "app.js", "raster.js", "units.js",
+                "meteogram.js")
+
+REDIRECT_STUB = ("<!doctype html><meta charset=utf-8>"
+                 "<meta http-equiv=refresh content='0;url=../'>"
+                 "<a href='../'>The wind viewer moved to the site root.</a>")
 
 
 def md_to_html(md: str) -> str:
@@ -180,99 +190,93 @@ def rt2021_score(variable: str, lead: int = 72) -> float | None:
     return None
 
 
-def landing() -> str:
+# Leads the local harness scores at; metrics.json arrays align to this list,
+# with null where a model has no forecast (12-hourly models on odd leads,
+# direct-72h models everywhere but 72).
+LEAD_HOURS = list(range(6, 121, 6))
+METRIC_VARS = ("wind_speed", "u10", "v10")
+
+PROVENANCE = ("Latitude-weighted RMSE/ACC vs ERA5 on the 64x32 grid, 2020 test "
+              "year. Live operational runs are NOT verified here: no truth "
+              "exists yet for today's dates.")
+
+
+def viewer_csv_stem(source_id: str) -> str | None:
+    """Map a viewer source id to its results CSV (competitors carry _2020)."""
+    for stem in (source_id, f"{source_id}_2020"):
+        if (RESULTS_DIR / f"{stem}_test.csv").exists():
+            return stem
+    return None
+
+
+def export_metrics() -> dict:
+    """Write docs/data/metrics.json: every score the viewer shows.
+
+    The viewer must never hard-code a number; it reads this file, and this
+    file reads artifacts/results/, so the map cannot drift from the scores.
+    """
+    ids = {"persistence", "avg5"}          # sparkline reference curves
+    man_path = DOCS / "data" / "manifest.json"
+    if man_path.exists():
+        ids |= {s["id"] for s in json.loads(man_path.read_text())["sources"]}
+
+    models = {}
+    for sid in sorted(ids):
+        stem = viewer_csv_stem(sid)
+        if stem is None:
+            continue                       # live sources land here, by design
+        d = pd.read_csv(RESULTS_DIR / f"{stem}_test.csv")
+        entry: dict = {"csv": stem}
+        for var in METRIC_VARS:
+            dv = d[(d.variable == var) & (d.n_inits > 0)].dropna(subset=["rmse"])
+            by_lead = {int(r.lead_h): r for r in dv.itertuples()}
+            if not by_lead:
+                continue
+            entry[var] = {
+                "rmse": [round(float(by_lead[h].rmse), 4) if h in by_lead
+                         else None for h in LEAD_HOURS],
+                "acc": [round(float(by_lead[h].acc), 4)
+                        if h in by_lead and pd.notna(by_lead[h].acc)
+                        else None for h in LEAD_HOURS],
+            }
+        if len(entry) > 1:
+            models[sid] = entry
+
+    sharpness: dict = {}
+    sf = RESULTS_DIR / "sharpness.csv"
+    if sf.exists():
+        for r in pd.read_csv(sf).itertuples():
+            sid = "avg4" if r.model == "avg4 (mean of 4)" else re.sub(r"_2020$", "", r.model)
+            sharpness.setdefault(sid, {})[str(int(r.lead_h))] = {
+                "ws_spec_ratio": round(float(r.ws_spec_ratio), 4),
+                "ws_p95_bias": round(float(r.ws_p95_bias), 4),
+                "cf_rmse": round(float(r.cf_rmse), 5),
+            }
+
     best = score("avg5", "wind_speed", 72)
-    gc = score("graphcast_2020", "wind_speed", 72)
-    fuxi = score("fuxi_2020", "wind_speed", 72)
-    ours = score("unet_long_ft4", "wind_speed", 72)
-    # Best from-scratch z500, whichever model holds it -- naming one hardcodes
-    # a result. anchor72 held it at 387.4, then resnet72_big at 378.5, then the
-    # faithful RT2021 recreation at 306.7, which is the first to pass the
-    # ERA5-only anchor. A hardcoded card would still be showing 387.
-    anchor_runs = [(score(m, "z500", 72), m) for m in
-                   ("anchor72", "levels72", "resnet72", "resnet72_big")]
-    anchor_hits = [(v, m) for v, m in anchor_runs if v is not None]
-    rt = rt2021_score("z500")
-    if rt is not None:
-        anchor_hits.append((rt, "RT2021 recreation"))
-    anchor, anchor_model = min(anchor_hits) if anchor_hits else (None, None)
-    beat = anchor is not None and anchor < 314.0
-    ref = min(v for v in (gc, fuxi) if v is not None) if (gc or fuxi) else None
-    gain = (best / ref - 1) * 100 if best and ref else None
-
-    cards = [
-        ("Best forecast (ensemble)", f"{best:.3f}" if best else "—",
-         "10m wind speed RMSE @72h, m/s", True),
-        ("vs best single model", f"{gain:+.1f}%" if gain else "—",
-         f"beats FuXi/GraphCast ({ref:.3f})" if ref else "", True),
-        ("Best from-scratch model", f"{ours:.3f}" if ours else "—",
-         "our U-Net, 4 CPU cores", False),
-        # 314 is Rasp & Thuerey's ERA5-only figure; their 268 is the
-        # CMIP6-pretrained one and is not what an ERA5-only model should be
-        # measured against
-        ("Literature anchor (z500 @72h)", f"{anchor:.0f} vs 314" if anchor else "—",
-         (f"beats the ERA5-only anchor — {anchor_model}" if beat else
-          f"not reached — {anchor_model}, ERA5-only anchor") if anchor else
-         "not reached — see Research", beat),
-    ]
-    stat_html = "".join(
-        f'<div class=stat><div class="v{" win" if win else ""}">{v}</div>'
-        f'<div class=k>{k}</div></div>'
-        for k, v, _s, win in cards)
-
-    # The map IS the page. It was previously one click behind a wall of text,
-    # which buried the only part of this project that is worth just looking at.
-    # An iframe rather than promoting viewer/index.html to the site root:
-    # the viewer fetches data/ and vendor/ by RELATIVE path, so moving it means
-    # moving both trees and rewriting those fetches -- real breakage risk for a
-    # cosmetic gain. This keeps the viewer self-contained and still linkable at
-    # /viewer/.
-    return f"""<!doctype html><html lang=en><head><meta charset=utf-8>
-<meta name=viewport content='width=device-width,initial-scale=1'>
-<title>windplayground — live global wind</title>
-<style>
-{CSS}
-html,body{{height:100%;overflow:hidden}}
-.app{{display:flex;flex-direction:column;height:100vh}}
-.topbar{{flex:0 0 auto;display:flex;align-items:center;gap:18px;flex-wrap:wrap;
-  padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line)}}
-.topbar .brand{{font-weight:700;letter-spacing:.02em;white-space:nowrap}}
-.topbar .tag{{color:var(--muted);font-size:13px;white-space:nowrap}}
-.stats{{display:flex;gap:16px;margin-left:auto;flex-wrap:wrap}}
-.stat{{text-align:right;line-height:1.15}}
-.stat .v{{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}}
-.stat .k{{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}}
-.stat .v.win{{color:var(--accent)}}
-.links{{display:flex;gap:10px;white-space:nowrap}}
-.links a{{font-size:13px;padding:6px 11px;border:1px solid var(--line);
-  border-radius:8px;color:var(--text);text-decoration:none}}
-.links a:hover{{border-color:var(--accent);color:var(--accent)}}
-frame-wrap{{flex:1 1 auto;min-height:0}}
-iframe{{width:100%;height:100%;border:0;display:block}}
-@media (max-width:760px){{.stats{{display:none}}}}
-</style></head><body>
-<div class=app>
-  <div class=topbar>
-    <span class=brand>windplayground</span>
-    <span class=tag>10&thinsp;m wind &middot; live operational runs, frontier models,
-      and every model we trained</span>
-    <div class=stats>{stat_html}</div>
-    <div class=links>
-      <a href="report.html">Research</a>
-      <a href="results.html">Results</a>
-      <a href="https://github.com/andrewnakas/windplayground-">GitHub</a>
-    </div>
-  </div>
-  <frame-wrap style="display:block"><iframe src="viewer/index.html"
-    title="Interactive global wind map" loading="eager"></iframe></frame-wrap>
-</div>
-</body></html>
-"""
+    single = [v for v in (score("graphcast_2020", "wind_speed", 72),
+                          score("fuxi_2020", "wind_speed", 72)) if v is not None]
+    ref = min(single) if single else None
+    out = {
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "provenance": PROVENANCE,
+        "lead_hours": LEAD_HOURS,
+        "models": models,
+        "sharpness": sharpness,
+        "headline": {
+            "best_blend_rmse72": round(best, 4) if best else None,
+            "best_single_rmse72": round(ref, 4) if ref else None,
+            "our_best_rmse72": (lambda v: round(v, 4) if v else None)(
+                score("unet_long_ft4", "wind_speed", 72)),
+        },
+    }
+    (DOCS / "data").mkdir(exist_ok=True)
+    (DOCS / "data" / "metrics.json").write_text(json.dumps(out, separators=(",", ":")))
+    return out
 
 
 def main() -> None:
     DOCS.mkdir(exist_ok=True)
-    (DOCS / "index.html").write_text(landing())
     for src, out, title in [("REPORT.md", "report.html", "Research — windplayground"),
                             ("RESULTS.md", "results.html", "Results — windplayground")]:
         md = (REPO_ROOT / src).read_text()
@@ -282,10 +286,30 @@ def main() -> None:
     (DOCS / "figures").mkdir(exist_ok=True)
     for png in (ARTIFACTS / "figures").glob("*.png"):
         shutil.copy2(png, DOCS / "figures" / png.name)
-    viewer_dst = DOCS / "viewer"
-    if viewer_dst.exists():
-        shutil.rmtree(viewer_dst)
-    shutil.copytree(REPO_ROOT / "viewer", viewer_dst)
+
+    export_metrics()
+
+    # The viewer is the landing page: copy its code files to the docs root.
+    # docs/data is NOT touched here -- it is the data's only home, written by
+    # the export/fetch scripts, and deleting it would take the site's fields
+    # (and the live history's bounded diffs) with it.
+    viewer = REPO_ROOT / "viewer"
+    for name in VIEWER_FILES:
+        f = viewer / name
+        if f.exists():
+            shutil.copy2(f, DOCS / name)
+    vendor_dst = DOCS / "vendor"
+    if vendor_dst.exists():
+        shutil.rmtree(vendor_dst)
+    shutil.copytree(viewer / "vendor", vendor_dst)
+
+    # The viewer used to live at /viewer/; keep old links working.
+    old = DOCS / "viewer"
+    if old.exists():
+        shutil.rmtree(old)
+    old.mkdir()
+    (old / "index.html").write_text(REDIRECT_STUB)
+
     (DOCS / ".nojekyll").touch()   # keep Jekyll from eating vendor/ and data/
 
     total = sum(f.stat().st_size for f in DOCS.rglob("*") if f.is_file())

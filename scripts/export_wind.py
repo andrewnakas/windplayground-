@@ -29,7 +29,7 @@ from windml.eval.forecasters import ModelForecaster, PersistenceForecaster
 
 U10, V10 = CHANNELS.index("u10"), CHANNELS.index("v10")
 STATS_PATH = ARTIFACTS / "data" / "stats.json"
-OUT_DIR = Path("viewer/data")
+OUT_DIR = Path("docs/data")
 
 # Every trained checkpoint the picker offers, newest lineage last. A model only
 # appears if its best.pt exists, so a partly-trained repo still exports cleanly.
@@ -163,8 +163,7 @@ def main() -> None:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest = {"inits": args.inits, "leads": args.leads, "sources": [], "grid":
-                {"nx": len(lon), "ny": len(lat), "note": "5.625 deg ERA5 grid"}}
+    manifest = {"inits": args.inits, "leads": args.leads, "sources": []}
 
     for src_id, label, kind, spec in SOURCES:
         forecaster = None

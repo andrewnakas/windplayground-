@@ -93,6 +93,20 @@ Pascal note (GTX 10-series): install a torch build that still ships `sm_61` kern
 device-agnostic (`--device auto|cpu|cuda`) and fp32 by default, since Pascal has no fast
 half-precision path.
 
+## The dashboard
+
+The site root **is** the viewer (`docs/`, deployed by GitHub Pages): a Leaflet map of
+particle-animated wind with a speed-shaded raster underneath, a 6-hourly timeline
+scrubber with playback, and a click-anywhere **meteogram** — speed and direction over
+the whole forecast at that point, with a ±1σ band across the live members. View modes
+show a model's **error field vs ERA5** (2020 hindcasts), a live member's departure from
+the multi-model mean, or the blend's **ensemble spread**. A skill panel plots every
+model's RMSE-vs-lead curve against the persistence floor and best-blend ceiling,
+straight from `docs/data/metrics.json` (exported from `artifacts/results/` — the viewer
+never hard-codes a score). Live sources carry a 10 m / 100 m (hub height) toggle and a
+data-age chip; they deliberately show **no** skill numbers, because no verifying truth
+exists yet for today's dates.
+
 ## Live forecasts, and adding WeatherNext
 
 The viewer carries a **live multi-model mean** alongside its members: ECMWF AIFS
@@ -117,7 +131,7 @@ gcloud auth application-default login
 pip install google-cloud-bigquery
 python scripts/wn_export_local.py --probe  --project YOUR_PROJECT   # schema, free
 python scripts/wn_export_local.py --export --project YOUR_PROJECT --table PROJ.DS.TABLE
-git add viewer/data && git commit -m "weathernext live" && git push
+git add docs/data && git commit -m "weathernext live" && git push
 ```
 
 It uses your existing Application Default Credentials, dry-runs every query and refuses

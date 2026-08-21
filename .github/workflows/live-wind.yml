@@ -51,17 +51,20 @@ jobs:
           # zarr>=3 is required for dynamical.org's Zarr v3 / Icechunk store and
           # conflicts with the training env's pinned zarr<3, which is why this
           # is a standalone install rather than the project's own environment.
-          python -m pip install --quiet "zarr>=3" "xarray>=2025.1" numpy aiohttp pandas pyyaml
+          python -m pip install --quiet "zarr>=3" "xarray>=2025.1" numpy aiohttp fsspec pandas pyyaml
 
       - name: Fetch live forecasts
         run: |
           set -e
           for ds in aifs gfs; do
-            echo "::group::$ds"
-            # One source failing (an upstream outage, a partial store) must not
-            # discard the other; the previous JSON simply stays in place.
-            python scripts/fetch_dynamical.py --dataset "$ds" || echo "$ds failed, keeping previous data"
-            echo "::endgroup::"
+            for level in 10m 100m; do
+              echo "::group::$ds $level"
+              # One source failing (an upstream outage, a partial store) must not
+              # discard the others; the previous JSON simply stays in place.
+              python scripts/fetch_dynamical.py --dataset "$ds" --level "$level" \
+                || echo "$ds $level failed, keeping previous data"
+              echo "::endgroup::"
+            done
           done
 
       - name: Blend the live members
@@ -85,12 +88,12 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add viewer/data docs
+          git add docs
           if git diff --cached --quiet; then
             echo "no change -- same init time, nothing to deploy"
             exit 0
           fi
-          INIT=$(python -c "import json;m=json.load(open('viewer/data/manifest.json'));print(next((s.get('init_time','?') for s in m['sources'] if s['kind']=='live'),'?'))")
+          INIT=$(python -c "import json;m=json.load(open('docs/data/manifest.json'));print(next((s.get('init_time','?') for s in m['sources'] if s['kind']=='live'),'?'))")
           git commit -m "Live wind refresh: init $INIT"
           git push
           echo "changed=true" >> "$GITHUB_OUTPUT"

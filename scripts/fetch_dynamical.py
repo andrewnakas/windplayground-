@@ -75,7 +75,23 @@ DATASETS = {
         "skip_scheduled": True,
     },
 }
-OUT_DIR = Path("viewer/data")
+OUT_DIR = Path("docs/data")
+
+# Full 6-hourly ladder to +120 h. AIFS is 6-hourly and GFS hourly upstream, so
+# every rung exists for both; 21 leads at 2 degrees is ~3 MB per model per
+# refresh, the price of a scrubber and meteogram that move in 6 h steps
+# instead of 24. WeatherNext is 6-hourly too (from +6), so the blend keeps
+# every rung as well.
+DEFAULT_LEADS = list(range(0, 121, 6))
+
+
+def select_leads(requested: list[int], available: set[int]) -> list[int]:
+    """The requested leads the store actually carries, in request order."""
+    keep = [h for h in requested if h in available]
+    if not keep:
+        raise SystemExit(f"none of {requested} are available; first few: "
+                         f"{sorted(available)[:8]}")
+    return keep
 
 
 def velocity_records(u, v, lat, lon, ref_time: str, forecast_hours: int) -> list:
@@ -109,7 +125,7 @@ def velocity_records(u, v, lat, lon, ref_time: str, forecast_hours: int) -> list
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--dataset", default="aifs", choices=sorted(DATASETS))
-    p.add_argument("--leads", nargs="+", type=int, default=[0, 24, 48, 72, 96, 120])
+    p.add_argument("--leads", nargs="+", type=int, default=DEFAULT_LEADS)
     # 8 -> a 2-degree grid (~0.2 MB/lead). This is a git-churn decision, not a
     # visual one: these files are committed on every 6-hourly refresh, and at
     # the previous 1 degree they were 0.8 MB each, ~10 MB per commit. 2 degrees
@@ -117,6 +133,11 @@ def main() -> None:
     # particle animation is indistinguishable below zoom 6. Wind is rounded to
     # 0.1 m/s for the same reason -- three decimals of a visualised field is
     # bytes spent on nothing.
+    # Hub height: both AIFS and GFS also publish 100 m wind (GFS's nearest is
+    # wind_{u,v}_100m too). Gusts do NOT exist in either store -- probed
+    # 2026-08-20 -- so 100 m is the one richer wind variable on offer, and it
+    # is the one the capacity-factor work in RESULTS.md actually wants.
+    p.add_argument("--level", default="10m", choices=("10m", "100m"))
     p.add_argument("--coarsen", type=int, default=8,
                    help="spatial coarsening factor (4 -> 1 degree from 0.25 degree)")
     p.add_argument("--out", default=str(OUT_DIR))
@@ -128,15 +149,15 @@ def main() -> None:
 
     init = ds.init_time.values[-1]            # most recent run
     print(f"latest init_time: {init}")
-    lead_td = np.array([np.timedelta64(h, "h") for h in args.leads])
     available = set(ds.lead_time.values.astype("timedelta64[h]").astype(int))
-    keep_h = [h for h in args.leads if h in available]
-    if not keep_h:
-        raise SystemExit(f"none of {args.leads} are available; first few: "
-                         f"{sorted(available)[:8]}")
+    keep_h = select_leads(args.leads, available)
     lead_td = np.array([np.timedelta64(h, "h") for h in keep_h])
 
-    sub = ds[["wind_u_10m", "wind_v_10m"]].sel(init_time=init, lead_time=lead_td)
+    uvar, vvar = f"wind_u_{args.level}", f"wind_v_{args.level}"
+    if uvar not in ds:
+        raise SystemExit(f"{args.dataset} has no {uvar}; variables: "
+                         f"{sorted(ds.data_vars)[:12]} ...")
+    sub = ds[[uvar, vvar]].sel(init_time=init, lead_time=lead_td)
     print("downloading (one chunk covers every lead time) ...")
     sub = sub.load()
 
@@ -166,11 +187,17 @@ def main() -> None:
     # overwrites in place and keeps each commit a bounded diff.
     init_label = "latest"
     actual_init = ref.replace(":00", "")
+    # 100 m fields live under their own source id (aifs100_live) so each level
+    # blends and displays independently; the viewer pairs them by this naming.
+    source_id = spec["id"] if args.level == "10m" else \
+        spec["id"].replace("_live", "100_live")
+    label = spec["label"] if args.level == "10m" else \
+        spec["label"].replace(" — live", " — live, 100 m")
     for i, h in enumerate(keep_h):
-        u = sub.wind_u_10m.isel(lead_time=i).values
-        v = sub.wind_v_10m.isel(lead_time=i).values
+        u = sub[uvar].isel(lead_time=i).values
+        v = sub[vvar].isel(lead_time=i).values
         payload = velocity_records(u, v, lat, lon, ref + ":00:00Z", h)
-        path = out_dir / f"{spec['id']}_{init_label}_{h:03d}.json"
+        path = out_dir / f"{source_id}_{init_label}_{h:03d}.json"
         path.write_text(json.dumps(payload, separators=(",", ":")))
         print(f"  +{h:3d} h -> {path.name} ({path.stat().st_size/1e6:.1f} MB)")
 
@@ -181,14 +208,15 @@ def main() -> None:
     if init_label not in man["inits"]:
         man["inits"].append(init_label)
     man["leads"] = sorted(set(man["leads"]) | set(keep_h))
-    man["sources"] = [s for s in man["sources"] if s["id"] != spec["id"]]
-    man["sources"].append({"id": spec["id"], "label": spec["label"], "kind": "live",
+    man["sources"] = [s for s in man["sources"] if s["id"] != source_id]
+    man["sources"].append({"id": source_id, "label": label, "kind": "live",
+                           "level": args.level,
                            "inits": [init_label], "leads": keep_h,
                            # what the viewer shows as "init 06Z, 3 h ago"; the
                            # filename no longer carries it
                            "init_time": actual_init + ":00:00Z"})
     man_path.write_text(json.dumps(man, indent=2))
-    print(f"\nregistered {spec['id']} for init {init_label} in {man_path}")
+    print(f"\nregistered {source_id} for init {init_label} in {man_path}")
 
 
 if __name__ == "__main__":

@@ -31,11 +31,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
-OUT_DIR = Path("viewer/data")
+OUT_DIR = Path("docs/data")
 BLEND_ID = "live_blend"
+SPREAD_ID = "live_spread"
 # the grid fields that must agree before two forecasts can be averaged
 GRID_KEYS = ("nx", "ny", "la1", "lo1", "la2", "lo2", "dx", "dy", "forecastTime")
 
@@ -138,7 +140,8 @@ def check_compatible(recs: list[tuple[str, list]]) -> str:
     return ref0
 
 
-def blend_lead(members: list[str], lead: int) -> str | None:
+def blend_lead(members: list[str], lead: int,
+               blend_id: str = BLEND_ID, spread_id: str = SPREAD_ID) -> str | None:
     recs = [(m, r) for m in members if (r := load(m, lead)) is not None]
     if len(recs) < 2:
         return None
@@ -148,12 +151,34 @@ def blend_lead(members: list[str], lead: int) -> str | None:
     for comp in range(len(recs[0][1])):                    # u record, then v
         stacks = [r[comp]["data"] for _, r in recs]
         n = len(stacks)
-        mean = [round(sum(vals) / n, 3) for vals in zip(*stacks)]
+        # 2 decimals: the members themselves carry 1, so a third decimal on
+        # their mean is file weight, not information
+        mean = [round(sum(vals) / n, 2) for vals in zip(*stacks)]
         header = dict(recs[0][1][comp]["header"])
         out.append({"header": header, "data": mean})
 
-    (OUT_DIR / f"{BLEND_ID}_latest_{lead:03d}.json").write_text(
+    (OUT_DIR / f"{blend_id}_latest_{lead:03d}.json").write_text(
         json.dumps(out, separators=(",", ":")))
+
+    # Ensemble spread, exported HERE because this is the one place where
+    # "which members are on-cycle" is already resolved -- the viewer must
+    # never re-derive membership. Per gridpoint: population std of the
+    # members' wind SPEEDS (std of components would hide direction-only
+    # disagreement in the quantity people actually read off the map).
+    us = [r[0]["data"] for _, r in recs]
+    vs = [r[1]["data"] for _, r in recs]
+    n = len(recs)
+    spread = []
+    for i in range(len(us[0])):
+        sp = [math.hypot(us[m][i], vs[m][i]) for m in range(n)]
+        mu = sum(sp) / n
+        spread.append(round(math.sqrt(sum((s - mu) ** 2 for s in sp) / n), 1))
+    header = dict(recs[0][1][0]["header"])
+    header["parameterNumberName"] = "wind_speed_stddev"
+    header["parameterUnit"] = "m.s-1"
+    header["members"] = [m for m, _ in recs]
+    (OUT_DIR / f"{spread_id}_latest_{lead:03d}.json").write_text(
+        json.dumps([{"header": header, "data": spread}], separators=(",", ":")))
     return ref
 
 
@@ -183,39 +208,60 @@ def main() -> None:
     man_path = OUT_DIR / "manifest.json"
     man = json.loads(man_path.read_text())
 
-    live = [s for s in man["sources"]
-            if s.get("kind") == "live" and s["id"] != BLEND_ID]
-    members = a.members or [s["id"] for s in live]
-    if len(members) < 2:
-        raise SystemExit(f"need >=2 live sources to blend, found {members}")
-    leads = sorted({ld for s in live if s["id"] in members for ld in s["leads"]})
-    print(f"windml members={members} candidate_leads={leads}")
-    members = align_members(members, leads)
-    if members != (a.members or [s["id"] for s in live]):
-        print(f"windml blending members={members}")
+    # 10 m and 100 m are separate products with separate members; averaging
+    # across heights would be meaningless, so each level blends on its own.
+    blended_any = False
+    newest_ref = None
+    for level, blend_id, spread_id in (("10m", BLEND_ID, SPREAD_ID),
+                                       ("100m", BLEND_ID + "100", SPREAD_ID + "100")):
+        live = [s for s in man["sources"]
+                if s.get("kind") == "live"
+                and s.get("level", "10m") == level
+                and s["id"] not in (BLEND_ID, BLEND_ID + "100")]
+        members = a.members or [s["id"] for s in live]
+        members = [m for m in members if m in {s["id"] for s in live}]
+        if len(members) < 2:
+            if level == "10m":
+                raise SystemExit(f"need >=2 live sources to blend, found {members}")
+            continue                     # no 100 m fleet yet: nothing to do
+        leads = sorted({ld for s in live if s["id"] in members for ld in s["leads"]})
+        print(f"windml level={level} members={members} candidate_leads={leads}")
+        members = align_members(members, leads)
+        print(f"windml level={level} blending members={members}")
 
-    done, ref = [], None
-    for lead in leads:
-        r = blend_lead(members, lead)
-        if r:
-            done.append(lead)
-            ref = r
-    if not done:
-        raise SystemExit("no lead had >=2 members present; nothing blended")
+        done, ref = [], None
+        for lead in leads:
+            r = blend_lead(members, lead, blend_id, spread_id)
+            if r:
+                done.append(lead)
+                ref = r
+        if not done:
+            if level == "10m":
+                raise SystemExit("no lead had >=2 members present; nothing blended")
+            continue
+        blended_any = True
+        newest_ref = ref
 
-    labels = [s["label"].split("(")[0].strip() for s in live if s["id"] in members]
-    entry = {
-        "id": BLEND_ID,
-        "label": f"Live multi-model mean ({' + '.join(labels)})",
-        "kind": "live",
-        "inits": ["latest"],
-        "leads": done,
-        "init_time": ref,
-        "members": members,
-    }
-    man["sources"] = [s for s in man["sources"] if s["id"] != BLEND_ID] + [entry]
+        labels = [s["label"].split("(")[0].strip() for s in live if s["id"] in members]
+        entry = {
+            "id": blend_id,
+            "label": (f"Live multi-model mean ({' + '.join(labels)})" if level == "10m"
+                      else f"Live multi-model mean @100 m ({' + '.join(labels)})"),
+            "kind": "live",
+            "level": level,
+            "inits": ["latest"],
+            "leads": done,
+            "init_time": ref,
+            "members": members,
+            "spread_leads": done,
+        }
+        man["sources"] = [s for s in man["sources"] if s["id"] != blend_id] + [entry]
+        print(f"windml blended level={level} leads={done} init={ref} -> {blend_id}")
+
+    if not blended_any:
+        raise SystemExit("nothing blended at any level")
     man_path.write_text(json.dumps(man, indent=2))
-    print(f"windml blended leads={done} init={ref} -> {BLEND_ID}")
+    ref = newest_ref
 
     if a.max_age_h > 0 and ref:
         age = age_hours(ref)

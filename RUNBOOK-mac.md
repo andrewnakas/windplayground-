@@ -88,9 +88,12 @@ If `--match-live` says the existing members are on a cycle WeatherNext does not
 have, re-fetch them onto a shared one rather than relaxing the check:
 
 ```bash
-python -m venv .venv-dyn && .venv-dyn/bin/pip install "zarr>=3" "xarray>=2025.1" numpy aiohttp
+python -m venv .venv-dyn && .venv-dyn/bin/pip install "zarr>=3" "xarray>=2025.1" numpy aiohttp fsspec
 .venv-dyn/bin/python scripts/fetch_dynamical.py --dataset aifs
 .venv-dyn/bin/python scripts/fetch_dynamical.py --dataset gfs
+# the viewer's 10 m / 100 m toggle reads these; skip them and 100 m just goes stale
+.venv-dyn/bin/python scripts/fetch_dynamical.py --dataset aifs --level 100m
+.venv-dyn/bin/python scripts/fetch_dynamical.py --dataset gfs --level 100m
 ```
 
 ## 3. Blend and rebuild
@@ -113,7 +116,7 @@ a cycle or two WeatherNext is behind, and `blend_live.py` prints
 mean instead. Nothing is broken; the site stays current and the viewer label
 drops back to two models. Re-run steps 2–4 to put WeatherNext back in.
 
-**Look at the map before you push.** Open `docs/viewer/index.html`, pick "Live
+**Look at the map before you push.** Open `docs/index.html`, pick "Live
 multi-model mean" and confirm particles are moving over land as well as ocean.
 A previous fix in this project was shipped without looking at the render and was
 aimed at the wrong bug entirely.
@@ -121,7 +124,7 @@ aimed at the wrong bug entirely.
 ## 4. Publish
 
 ```bash
-git add viewer/data docs
+git add docs
 git commit -m "weathernext live"
 git push -u origin claude/wind-forecast-ml-research-veu6d5
 ```
