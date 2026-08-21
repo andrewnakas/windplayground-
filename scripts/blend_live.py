@@ -74,18 +74,18 @@ def member_init(source_id: str, leads: list[int]) -> str | None:
 
 
 def align_members(members: list[str], leads: list[int]) -> list[str]:
-    """Keep only the members on the newest init, and say which were dropped.
+    """Blend the newest init that at least TWO members share.
 
     Averaging two different cycles is not an ensemble, which is why this file
-    refuses to do it. It used to refuse by aborting -- but the members do not
-    all refresh on the same clock: AIFS and GFS come from dynamical.org and the
-    6-hourly workflow re-fetches them, while WeatherNext needs a credentialed
-    BigQuery export that only runs from a developer machine. Aborting meant one
-    unavoidably-lagging member froze the whole live blend, including the two
-    that had fresh data.
-
-    So the guard's intent is kept exactly -- nothing off-cycle is ever averaged
-    -- and only the response changes: drop the laggard, name it, carry on.
+    refuses to do it. The members do not refresh in lockstep, and the failure
+    has two directions: a LAGGARD (WeatherNext waiting on its credentialed
+    export) and a FRONT-RUNNER (one model's new cycle published upstream an
+    hour before the others'). Aligning to the plain newest init handled only
+    the first -- a lone front-runner left "1 member on the newest init" and
+    killed the whole unattended refresh, which is exactly how the first
+    scheduled CI run died. So the target is now the newest init with >=2
+    members; anyone off it, in either direction, is excluded by name and
+    picked back up next cycle.
     """
     inits = {m: member_init(m, leads) for m in members}
     present = {m: r for m, r in inits.items() if r is not None}
@@ -95,18 +95,23 @@ def align_members(members: list[str], leads: list[int]) -> list[str]:
     if not present:
         raise SystemExit("no live member has any data on disk")
 
-    newest = max(present.values())
-    aligned = [m for m in members if present.get(m) == newest]
+    counts: dict[str, int] = {}
+    for r in present.values():
+        counts[r] = counts.get(r, 0) + 1
+    shared = [r for r, n in counts.items() if n >= 2]
+    if not shared:
+        raise SystemExit(
+            f"no init is shared by two members: {present}. A 'multi-model "
+            f"mean' needs at least two models on one cycle; re-fetch until "
+            f"they agree.")
+    target = max(shared)
+    aligned = [m for m in members if present.get(m) == target]
     for m in members:
         if m in present and m not in aligned:
-            print(f"windml EXCLUDED {m}: init {present[m]} is behind the "
-                  f"newest live init {newest}. It is not averaged in -- "
-                  f"re-fetch it to bring it back into the blend.")
-    if len(aligned) < 2:
-        raise SystemExit(
-            f"only {len(aligned)} member(s) on the newest init {newest}: "
-            f"{aligned}. A 'multi-model mean' of one model is not one; "
-            f"re-fetch the others onto this cycle.")
+            rel = "ahead of" if present[m] > target else "behind"
+            print(f"windml EXCLUDED {m}: init {present[m]} is {rel} the "
+                  f"blended init {target}. It is not averaged in -- the next "
+                  f"cycle picks it back up.")
     return aligned
 
 

@@ -153,8 +153,21 @@ def test_excluding_down_to_one_member_is_fatal(workspace):
     write(workspace, "a_live", 72, record([1.0, 1.0], [0.0, 0.0], nx=2, ny=1))
     write(workspace, "b_live", 72, record([9.0, 9.0], [0.0, 0.0], nx=2, ny=1,
                                           ref="2026-08-09T00:00:00Z"))
-    with pytest.raises(SystemExit, match="only 1 member"):
+    with pytest.raises(SystemExit, match="no init is shared"):
         bl.align_members(["a_live", "b_live"], [72])
+
+
+def test_a_lone_front_runner_is_excluded_not_fatal(workspace, capsys):
+    """One model's new cycle published first must not kill the refresh --
+    the two members still on the previous cycle keep blending."""
+    write(workspace, "a_live", 72, record([1.0, 1.0], [0.0, 0.0], nx=2, ny=1,
+                                          ref="2026-08-11T00:00:00Z"))
+    write(workspace, "b_live", 72, record([3.0, 3.0], [0.0, 0.0], nx=2, ny=1))
+    write(workspace, "c_live", 72, record([5.0, 5.0], [0.0, 0.0], nx=2, ny=1))
+    assert bl.align_members(["a_live", "b_live", "c_live"], [72]) == [
+        "b_live", "c_live"]
+    out = capsys.readouterr().out
+    assert "EXCLUDED a_live" in out and "ahead of" in out
 
 
 def test_a_member_disagreeing_with_itself_is_fatal(workspace):

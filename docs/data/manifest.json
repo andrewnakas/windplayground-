@@ -1111,6 +1111,63 @@
       "init_time": "2026-08-21T00:00:00Z"
     },
     {
+      "id": "hrrr_live",
+      "label": "NOAA HRRR (3 km CONUS) \u2014 live",
+      "kind": "live",
+      "level": "10m",
+      "base": "hrrr_live",
+      "inits": [
+        "latest"
+      ],
+      "leads": [
+        0,
+        6,
+        12,
+        18,
+        24,
+        30,
+        36,
+        42,
+        48
+      ],
+      "domain": "conus",
+      "gust_leads": [
+        0,
+        6,
+        12,
+        18,
+        24,
+        30,
+        36,
+        42,
+        48
+      ],
+      "init_time": "2026-08-21T12:00:00Z"
+    },
+    {
+      "id": "hrrr80_live",
+      "label": "NOAA HRRR (3 km CONUS) \u2014 live, 80 m",
+      "kind": "live",
+      "level": "80m",
+      "base": "hrrr_live",
+      "inits": [
+        "latest"
+      ],
+      "leads": [
+        0,
+        6,
+        12,
+        18,
+        24,
+        30,
+        36,
+        42,
+        48
+      ],
+      "domain": "conus",
+      "init_time": "2026-08-21T12:00:00Z"
+    },
+    {
       "id": "live_blend",
       "base": "live_blend",
       "label": "Live multi-model mean (ECMWF AIFS + NOAA GFS)",
@@ -1231,63 +1288,6 @@
         114,
         120
       ]
-    },
-    {
-      "id": "hrrr_live",
-      "label": "NOAA HRRR (3 km CONUS) \u2014 live",
-      "kind": "live",
-      "level": "10m",
-      "base": "hrrr_live",
-      "inits": [
-        "latest"
-      ],
-      "leads": [
-        0,
-        6,
-        12,
-        18,
-        24,
-        30,
-        36,
-        42,
-        48
-      ],
-      "domain": "conus",
-      "gust_leads": [
-        0,
-        6,
-        12,
-        18,
-        24,
-        30,
-        36,
-        42,
-        48
-      ],
-      "init_time": "2026-08-21T12:00:00Z"
-    },
-    {
-      "id": "hrrr80_live",
-      "label": "NOAA HRRR (3 km CONUS) \u2014 live, 80 m",
-      "kind": "live",
-      "level": "80m",
-      "base": "hrrr_live",
-      "inits": [
-        "latest"
-      ],
-      "leads": [
-        0,
-        6,
-        12,
-        18,
-        24,
-        30,
-        36,
-        42,
-        48
-      ],
-      "domain": "conus",
-      "init_time": "2026-08-21T12:00:00Z"
     }
   ]
 }
