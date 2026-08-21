@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import html
+from datetime import datetime, timezone
 import re
 import shutil
 
@@ -189,6 +190,91 @@ def rt2021_score(variable: str, lead: int = 72) -> float | None:
     return None
 
 
+# Leads the local harness scores at; metrics.json arrays align to this list,
+# with null where a model has no forecast (12-hourly models on odd leads,
+# direct-72h models everywhere but 72).
+LEAD_HOURS = list(range(6, 121, 6))
+METRIC_VARS = ("wind_speed", "u10", "v10")
+
+PROVENANCE = ("Latitude-weighted RMSE/ACC vs ERA5 on the 64x32 grid, 2020 test "
+              "year. Live operational runs are NOT verified here: no truth "
+              "exists yet for today's dates.")
+
+
+def viewer_csv_stem(source_id: str) -> str | None:
+    """Map a viewer source id to its results CSV (competitors carry _2020)."""
+    for stem in (source_id, f"{source_id}_2020"):
+        if (RESULTS_DIR / f"{stem}_test.csv").exists():
+            return stem
+    return None
+
+
+def export_metrics() -> dict:
+    """Write docs/data/metrics.json: every score the viewer shows.
+
+    The viewer must never hard-code a number; it reads this file, and this
+    file reads artifacts/results/, so the map cannot drift from the scores.
+    """
+    ids = {"persistence", "avg5"}          # sparkline reference curves
+    man_path = DOCS / "data" / "manifest.json"
+    if man_path.exists():
+        ids |= {s["id"] for s in json.loads(man_path.read_text())["sources"]}
+
+    models = {}
+    for sid in sorted(ids):
+        stem = viewer_csv_stem(sid)
+        if stem is None:
+            continue                       # live sources land here, by design
+        d = pd.read_csv(RESULTS_DIR / f"{stem}_test.csv")
+        entry: dict = {"csv": stem}
+        for var in METRIC_VARS:
+            dv = d[(d.variable == var) & (d.n_inits > 0)].dropna(subset=["rmse"])
+            by_lead = {int(r.lead_h): r for r in dv.itertuples()}
+            if not by_lead:
+                continue
+            entry[var] = {
+                "rmse": [round(float(by_lead[h].rmse), 4) if h in by_lead
+                         else None for h in LEAD_HOURS],
+                "acc": [round(float(by_lead[h].acc), 4)
+                        if h in by_lead and pd.notna(by_lead[h].acc)
+                        else None for h in LEAD_HOURS],
+            }
+        if len(entry) > 1:
+            models[sid] = entry
+
+    sharpness: dict = {}
+    sf = RESULTS_DIR / "sharpness.csv"
+    if sf.exists():
+        for r in pd.read_csv(sf).itertuples():
+            sid = "avg4" if r.model == "avg4 (mean of 4)" else re.sub(r"_2020$", "", r.model)
+            sharpness.setdefault(sid, {})[str(int(r.lead_h))] = {
+                "ws_spec_ratio": round(float(r.ws_spec_ratio), 4),
+                "ws_p95_bias": round(float(r.ws_p95_bias), 4),
+                "cf_rmse": round(float(r.cf_rmse), 5),
+            }
+
+    best = score("avg5", "wind_speed", 72)
+    single = [v for v in (score("graphcast_2020", "wind_speed", 72),
+                          score("fuxi_2020", "wind_speed", 72)) if v is not None]
+    ref = min(single) if single else None
+    out = {
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "provenance": PROVENANCE,
+        "lead_hours": LEAD_HOURS,
+        "models": models,
+        "sharpness": sharpness,
+        "headline": {
+            "best_blend_rmse72": round(best, 4) if best else None,
+            "best_single_rmse72": round(ref, 4) if ref else None,
+            "our_best_rmse72": (lambda v: round(v, 4) if v else None)(
+                score("unet_long_ft4", "wind_speed", 72)),
+        },
+    }
+    (DOCS / "data").mkdir(exist_ok=True)
+    (DOCS / "data" / "metrics.json").write_text(json.dumps(out, separators=(",", ":")))
+    return out
+
+
 def main() -> None:
     DOCS.mkdir(exist_ok=True)
     for src, out, title in [("REPORT.md", "report.html", "Research — windplayground"),
@@ -200,6 +286,8 @@ def main() -> None:
     (DOCS / "figures").mkdir(exist_ok=True)
     for png in (ARTIFACTS / "figures").glob("*.png"):
         shutil.copy2(png, DOCS / "figures" / png.name)
+
+    export_metrics()
 
     # The viewer is the landing page: copy its code files to the docs root.
     # docs/data is NOT touched here -- it is the data's only home, written by
