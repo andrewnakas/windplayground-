@@ -111,6 +111,16 @@ binned to 0.2°, with a surface-**gust** shading mode (the global feeds carry no
 regional grids stay out of the global blend by construction). Live sources carry a data-age chip and deliberately show **no** skill
 numbers, because no verifying truth exists yet for today's dates.
 
+## Refresh triggering
+
+A Cloudflare Worker ([`cloudflare/refresh-trigger/`](cloudflare/refresh-trigger/))
+checks every 20 minutes whether any model has published a cycle the deployed site
+lacks (ECMWF open-data index probes, HRRR's +48 h completion marker on AWS) and
+dispatches the refresh workflow the moment one has — so the site follows each
+model's actual publication schedule instead of a fixed clock. GitHub's own cron
+stays on as a fallback. Status (read-only):
+https://windplayground-refresh.andrew-nakas.workers.dev/
+
 ## Live forecasts, and adding WeatherNext
 
 The viewer carries a **live multi-model mean** alongside its members: ECMWF AIFS
