@@ -61,7 +61,20 @@ DATASETS = {
     # only want the mean at six leads: ~37 GB for u and v against this container's
     # ~3 GB of disk. AIFS ENS has a catalog page but no zarr at any path probed.
     #
-    # Earlier probe (2026-08-06): ecmwf/ifs, noaa/hrrr and noaa/gefs/forecast 404.
+    # Earlier probe (2026-08-06): ecmwf/ifs, noaa/hrrr and noaa/gefs/forecast
+    # 404ed. Re-probed 2026-08-21: HRRR is now published (surface only -- no
+    # pressure levels -- but 10 m + 80 m wind AND surface gusts, hourly to 48 h
+    # on the native 3 km Lambert grid). ICON-EU exists too but its newest init
+    # was four months old, so it is left out until upstream is live again;
+    # AIFS-ENS is catalogued with no zarr behind it yet.
+    "hrrr": {
+        "url": "https://data.dynamical.org/noaa/hrrr/forecast-48-hour/latest.zarr",
+        "label": "NOAA HRRR (3 km CONUS) — live",
+        "id": "hrrr_live",
+        # projected grid: 2D lat/lon, needs binning onto a regular grid
+        "domain": "conus",
+        "gust": "wind_gust_surface",
+    },
     "gefs": {
         "url": "https://data.dynamical.org/noaa/gefs/forecast-35-day/latest.zarr",
         "label": "NOAA GEFS 35-day ensemble — live",
@@ -77,12 +90,54 @@ DATASETS = {
 }
 OUT_DIR = Path("docs/data")
 
+DATASET_LEVELS = {"aifs": ("10m", "100m"), "gfs": ("10m", "100m"),
+                  "gefs": ("10m",), "hrrr": ("10m", "80m")}
+
 # Full 6-hourly ladder to +120 h. AIFS is 6-hourly and GFS hourly upstream, so
 # every rung exists for both; 21 leads at 2 degrees is ~3 MB per model per
 # refresh, the price of a scrubber and meteogram that move in 6 h steps
 # instead of 24. WeatherNext is 6-hourly too (from +6), so the blend keeps
 # every rung as well.
 DEFAULT_LEADS = list(range(0, 121, 6))
+
+
+def bin_regrid(lat2d, lon2d, fields: list, res: float):
+    """Average a projected grid's points into a regular lat/lon grid.
+
+    Returns (lat north-first, lon, regridded fields), cropped to the largest
+    interior rectangle with full coverage -- a Lambert cone's corners always
+    poke outside any regular lat/lon box, and the viewer's data format cannot
+    say "no data here", so the box shrinks until every cell is real.
+    """
+    lo = lon2d % 360.0
+    la_max, la_min = float(lat2d.max()), float(lat2d.min())
+    lo_min, lo_max = float(lo.min()), float(lo.max())
+    ny = max(1, int(np.ceil((la_max - la_min) / res)))
+    nx = max(1, int(np.ceil((lo_max - lo_min) / res)))
+    iy = np.clip(((la_max - lat2d) / res).astype(int), 0, ny - 1)
+    ix = np.clip(((lo - lo_min) / res).astype(int), 0, nx - 1)
+    flat = (iy * nx + ix).ravel()
+    counts = np.bincount(flat, minlength=ny * nx).astype(float)
+    outs = []
+    with np.errstate(invalid="ignore"):
+        for f in fields:
+            sums = np.bincount(flat, weights=np.nan_to_num(f).ravel(),
+                               minlength=ny * nx)
+            outs.append((sums / counts).reshape(ny, nx))
+    cov = counts.reshape(ny, nx) > 0
+    r0, r1, c0, c1 = 0, ny, 0, nx
+    while not cov[r0:r1, c0:c1].all():
+        blk = cov[r0:r1, c0:c1]
+        holes = [blk[0].size - blk[0].sum(), blk[-1].size - blk[-1].sum(),
+                 blk[:, 0].size - blk[:, 0].sum(), blk[:, -1].size - blk[:, -1].sum()]
+        k = int(np.argmax(holes))
+        if k == 0: r0 += 1
+        elif k == 1: r1 -= 1
+        elif k == 2: c0 += 1
+        else: c1 -= 1
+    lat_axis = (la_max - (np.arange(ny) + 0.5) * res)[r0:r1]
+    lon_axis = (lo_min + (np.arange(nx) + 0.5) * res)[c0:c1]
+    return lat_axis, lon_axis, [o[r0:r1, c0:c1] for o in outs]
 
 
 def select_leads(requested: list[int], available: set[int]) -> list[int]:
@@ -133,17 +188,24 @@ def main() -> None:
     # particle animation is indistinguishable below zoom 6. Wind is rounded to
     # 0.1 m/s for the same reason -- three decimals of a visualised field is
     # bytes spent on nothing.
-    # Hub height: both AIFS and GFS also publish 100 m wind (GFS's nearest is
-    # wind_{u,v}_100m too). Gusts do NOT exist in either store -- probed
-    # 2026-08-20 -- so 100 m is the one richer wind variable on offer, and it
-    # is the one the capacity-factor work in RESULTS.md actually wants.
-    p.add_argument("--level", default="10m", choices=("10m", "100m"))
+    # Hub height: both AIFS and GFS publish 100 m wind; HRRR publishes 80 m.
+    # Gusts exist only on the regional models (HRRR surface gust; ICON-EU has
+    # them too but its feed is stale) -- the global stores carry none, probed
+    # 2026-08-20/21. No dynamical.org store carries pressure-level wind.
+    p.add_argument("--level", default="10m", choices=("10m", "80m", "100m"))
+    # regional models are exported on a regular lat/lon grid this fine; 0.2
+    # degrees (~20 km) keeps HRRR 10x denser than the 2-degree global feeds
+    # without blowing up the 6-hourly commit
+    p.add_argument("--regional-res", type=float, default=0.2)
     p.add_argument("--coarsen", type=int, default=8,
                    help="spatial coarsening factor (4 -> 1 degree from 0.25 degree)")
     p.add_argument("--out", default=str(OUT_DIR))
     args = p.parse_args()
 
     spec = DATASETS[args.dataset]
+    if args.level not in DATASET_LEVELS.get(args.dataset, ("10m",)):
+        raise SystemExit(f"{args.dataset} has no {args.level} wind; "
+                         f"it offers {DATASET_LEVELS[args.dataset]}")
     print(f"opening {spec['url']} ...")
     ds = xr.open_zarr(spec["url"], chunks=None, consolidated=True)
 
@@ -157,7 +219,11 @@ def main() -> None:
     if uvar not in ds:
         raise SystemExit(f"{args.dataset} has no {uvar}; variables: "
                          f"{sorted(ds.data_vars)[:12]} ...")
-    sub = ds[[uvar, vvar]].sel(init_time=init, lead_time=lead_td)
+    fetch_vars = [uvar, vvar]
+    gust_var = spec.get("gust") if args.level == "10m" else None
+    if gust_var:
+        fetch_vars.append(gust_var)
+    sub = ds[fetch_vars].sel(init_time=init, lead_time=lead_td)
     print("downloading (one chunk covers every lead time) ...")
     sub = sub.load()
 
@@ -171,12 +237,25 @@ def main() -> None:
                   f"({sub.sizes[member_dims[0]]} members)")
             sub = sub.mean(dim=member_dims[0], keep_attrs=True)
 
-    if args.coarsen > 1:
-        sub = sub.coarsen(latitude=args.coarsen, longitude=args.coarsen,
-                          boundary="trim").mean()
+    if spec.get("domain"):
+        lat2d = sub.latitude.values
+        lon2d = sub.longitude.values
+        stacked = [sub[v].isel(lead_time=i).values
+                   for i in range(len(keep_h)) for v in fetch_vars]
+        lat, lon, regridded = bin_regrid(lat2d, lon2d, stacked, args.regional_res)
+        nvar = len(fetch_vars)
 
-    lat = sub.latitude.values
-    lon = sub.longitude.values
+        def field(name, i):
+            return regridded[i * nvar + fetch_vars.index(name)]
+    else:
+        if args.coarsen > 1:
+            sub = sub.coarsen(latitude=args.coarsen, longitude=args.coarsen,
+                              boundary="trim").mean()
+        lat = sub.latitude.values
+        lon = sub.longitude.values
+
+        def field(name, i):
+            return sub[name].isel(lead_time=i).values
     ref = str(np.datetime64(init, "h"))
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -190,15 +269,21 @@ def main() -> None:
     # 100 m fields live under their own source id (aifs100_live) so each level
     # blends and displays independently; the viewer pairs them by this naming.
     source_id = spec["id"] if args.level == "10m" else \
-        spec["id"].replace("_live", "100_live")
+        spec["id"].replace("_live", f"{args.level[:-1]}_live")
     label = spec["label"] if args.level == "10m" else \
-        spec["label"].replace(" — live", " — live, 100 m")
+        spec["label"].replace(" — live", f" — live, {args.level[:-1]} m")
     for i, h in enumerate(keep_h):
-        u = sub[uvar].isel(lead_time=i).values
-        v = sub[vvar].isel(lead_time=i).values
+        u = field(uvar, i)
+        v = field(vvar, i)
         payload = velocity_records(u, v, lat, lon, ref + ":00:00Z", h)
         path = out_dir / f"{source_id}_{init_label}_{h:03d}.json"
         path.write_text(json.dumps(payload, separators=(",", ":")))
+        if gust_var:
+            g = velocity_records(field(gust_var, i), field(gust_var, i),
+                                 lat, lon, ref + ":00:00Z", h)[:1]
+            g[0]["header"]["parameterNumberName"] = "wind_gust"
+            (out_dir / f"{source_id}_gust_{init_label}_{h:03d}.json").write_text(
+                json.dumps(g, separators=(",", ":")))
         print(f"  +{h:3d} h -> {path.name} ({path.stat().st_size/1e6:.1f} MB)")
 
     # register the live source in the viewer manifest
@@ -209,9 +294,14 @@ def main() -> None:
         man["inits"].append(init_label)
     man["leads"] = sorted(set(man["leads"]) | set(keep_h))
     man["sources"] = [s for s in man["sources"] if s["id"] != source_id]
-    man["sources"].append({"id": source_id, "label": label, "kind": "live",
-                           "level": args.level, "base": spec["id"],
-                           "inits": [init_label], "leads": keep_h,
+    entry = {"id": source_id, "label": label, "kind": "live",
+             "level": args.level, "base": spec["id"],
+             "inits": [init_label], "leads": keep_h}
+    if spec.get("domain"):
+        entry["domain"] = spec["domain"]
+    if gust_var:
+        entry["gust_leads"] = keep_h
+    man["sources"].append({**entry,
                            # what the viewer shows as "init 06Z, 3 h ago"; the
                            # filename no longer carries it
                            "init_time": actual_init + ":00:00Z"})

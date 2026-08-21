@@ -138,13 +138,14 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
   // picker shows only base (10 m) sources; this control swaps the id
   // render() actually loads. Which rungs exist varies by source: live feeds
   // stop at 100 m, FuXi's archive carries 850/500 only, ERA5 has them all.
-  const LEVEL_ORDER = ['10m', '100m', '850hPa', '700hPa', '500hPa', '250hPa'];
-  const LEVEL_LABEL = { '10m': '10 m', '100m': '100 m', '850hPa': '850',
-                        '700hPa': '700', '500hPa': '500', '250hPa': '250 hPa' };
+  const LEVEL_ORDER = ['10m', '80m', '100m', '850hPa', '700hPa', '500hPa', '250hPa'];
+  const LEVEL_LABEL = { '10m': '10 m', '80m': '80 m', '100m': '100 m',
+                        '850hPa': '850', '700hPa': '700', '500hPa': '500',
+                        '250hPa': '250 hPa' };
   // top of the color scale per level (m/s): the jet stream runs 3-4x surface
   // speeds, and one fixed 0-25 ramp would saturate the entire upper air
-  const LEVEL_MAX = { '10m': 25, '100m': 30, '850hPa': 40, '700hPa': 45,
-                      '500hPa': 60, '250hPa': 90 };
+  const LEVEL_MAX = { '10m': 25, '80m': 28, '100m': 30, '850hPa': 40,
+                      '700hPa': 45, '500hPa': 60, '250hPa': 90 };
   const variants = {};
   for (const s of manifest.sources)
     if (s.level && s.base) (variants[s.base] ??= {})[s.level] = s.id;
@@ -502,9 +503,23 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
       ? levelMode.replace('hPa', ' hPa') : LEVEL_LABEL[levelMode];
   }
 
+  // A CONUS-only model deserves a CONUS view; done once per source so the
+  // user's own panning is never fought.
+  let fittedSource = null;
+  function fitRegional(data, src) {
+    const base = src.base || src.id;
+    if (fittedSource === base) return;
+    fittedSource = base;
+    const h = data[0].header;
+    if (Math.abs(h.nx * h.dx - 360) < h.dx * 1.5) return;   // global: leave it
+    const w = h.lo1 > 180 ? h.lo1 - 360 : h.lo1;
+    const e = h.lo2 > 180 ? h.lo2 - 360 : h.lo2;
+    map.flyToBounds([[h.la2, w], [h.la1, e]], { duration: 0.8 });
+  }
+
   function setSub(data, src) {
     const nx = data[0].header.nx, ny = data[0].header.ny;
-    const degrees = (360 / nx).toFixed(2).replace(/\.?0+$/, '');
+    const degrees = data[0].header.dx.toFixed(2).replace(/\.?0+$/, '');
     document.getElementById('sub').innerHTML =
       `${levelName().replace(' ', '&nbsp;')} wind &middot; ${nx}&times;${ny} grid (${degrees}&deg;) &middot; ` +
       (src.kind === 'live' ? 'live operational run' : '2020 test year');
@@ -536,6 +551,18 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
           : `${bias ? 'speed bias' : 'vector error'} vs ERA5 truth at +${lead} h`);
         return;
       }
+      if (viewMode === 'gust') {
+        const [rec, data] = await Promise.all([
+          loadField(`${src.id}_gust`, init, lead), loadField(sourceId, init, lead)]);
+        showVelocity(data);
+        const gustMax = Math.round(windMax() * 1.6);
+        speedLayer.setStyle({ colorStops: WIND_STOPS, domain: [0, gustMax], opacity: 0.6 });
+        speedLayer.setGrid(gridFromRecord(rec[0]));
+        setLegend(WIND_STOPS, [0, gustMax]);
+        setSub(data, src);
+        say(`surface gusts shaded under the ${levelName()} wind — +${lead} h`);
+        return;
+      }
       if (viewMode === 'spread') {
         const spreadFile = src.level === '100m' ? 'live_spread100' : 'live_spread';
         const [rec, data] = await Promise.all([
@@ -559,6 +586,7 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
       speedLayer.setGrid(shadeOn ? currentSpeedGrid : null);
       setLegend(WIND_STOPS, [0, windMax()]);
       setSub(data, src);
+      fitRegional(data, src);
       const shown = byId[shownId];
       if (viewMode === 'ref') {
         say(`${shown.label} — the reference for ${src.label}, +${lead} h from ${init}`);
@@ -594,6 +622,9 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
     if (src.kind === 'truth') return null;
     if (src.kind === 'live') {
       if (src.id.startsWith(BLEND_SOURCE)) return null;    // the blends themselves
+      // a regional grid has no same-grid reference: diffing 0.2-degree CONUS
+      // against the 2-degree global blend cell-by-cell would be nonsense
+      if (src.domain) return null;
       return byId[src.level === '100m' ? BLEND_SOURCE + '100' : BLEND_SOURCE] ?? null;
     }
     // hindcast: truth at the SAME level, or plain era5 at the surface
@@ -611,6 +642,8 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
     }
     if (src.id.startsWith(BLEND_SOURCE) && (src.spread_leads || []).length)
       modes.push({ id: 'spread', label: 'Spread' });
+    if ((src.gust_leads || []).length)
+      modes.push({ id: 'gust', label: 'Gust' });
     return modes;
   }
 
@@ -756,6 +789,7 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
     const data = await loadField(sourceId, init, lead);
     const u = sampleGrid(gridFromRecord(data[0]), latlng.lat, latlng.lng);
     const v = sampleGrid(gridFromRecord(data[1]), latlng.lat, latlng.lng);
+    if (!Number.isFinite(u) || !Number.isFinite(v)) return null;
     // bearing the wind blows TOWARD, matching the particles on the map
     return { speed: Math.hypot(u, v), dir: Math.atan2(u, v) * 180 / Math.PI };
   }
@@ -773,7 +807,12 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
     // Which lines: live context reads the blend against its members; a
     // hindcast reads the model against ERA5 truth at the same valid times.
     let list;
-    if (live && blend) {
+    if (live && src.domain) {
+      // a regional model leads its own chart; the global mean is context
+      list = [{ id: src.id, label: shortLabel(src), color: '#58a6ff', width: 2.5 }];
+      if (blend) list.push({ id: blendId, label: 'global multi-model mean',
+                             color: '#7d8bb8', width: 1.2 });
+    } else if (live && blend) {
       const members = (blend.members || []).filter(id => byId[id]);
       list = [{ id: blendId, label: 'multi-model mean', color: '#58a6ff', width: 2.5 },
               ...members.map(id => ({ id, label: shortLabel(byId[id]),
@@ -811,7 +850,7 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
     }
 
     let sigma = null;
-    if (live && blend && (blend.spread_leads || []).length) {
+    if (live && !src.domain && blend && (blend.spread_leads || []).length) {
       sigma = [];
       for (const h of primLeads) {
         if (!blend.spread_leads.includes(h)) { sigma.push(null); continue; }
@@ -843,9 +882,11 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
         if (idx >= 0) { leadSlider.value = String(idx); render(); }
       },
     });
-    meteoNote.textContent = live
-      ? 'Live forecasts, unverified. The band is the std of the current on-cycle members.'
-      : 'Model vs the ERA5 reanalysis it is scored against (2020 test year).';
+    meteoNote.textContent = !live
+      ? 'Model vs the ERA5 reanalysis it is scored against (2020 test year).'
+      : src.domain
+        ? 'Live regional forecast, unverified; the global multi-model mean is context.'
+        : 'Live forecasts, unverified. The band is the std of the current on-cycle members.';
   }
 
   map.on('click', ev => {
