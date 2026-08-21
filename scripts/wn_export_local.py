@@ -408,8 +408,15 @@ def live_init(out_dir: pathlib.Path) -> str:
     the blend then refuses, with nothing pointing at why.
     """
     man = json.loads((out_dir / "manifest.json").read_text())
+    # only actual blend-mates count: global 10 m members. Regional models
+    # (HRRR runs its own cadence on its own grid) and the derived blends
+    # would otherwise "disagree" with a cycle they were never part of.
     inits = {s["id"]: s.get("init_time") for s in man.get("sources", [])
-             if s.get("kind") == "live" and s["id"] not in (SOURCE_ID, "live_blend")}
+             if s.get("kind") == "live"
+             and not s.get("domain")
+             and s.get("level", "10m") == "10m"
+             and not s["id"].startswith("live_blend")
+             and s["id"] != SOURCE_ID}
     have = {v for v in inits.values() if v}
     if not have:
         sys.exit("--match-live: no other live source carries an init_time; "
