@@ -95,11 +95,13 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
   const leadSlider = document.getElementById('lead');
   const leadOut = document.getElementById('leadOut');
 
+  // live leads: this is a wind dashboard, and the wind that matters first is
+  // today's -- the research catalogue follows
   const GROUPS = {
+    live: 'Live operational runs',
     truth: 'Reanalysis',
-    ckpt: 'Our models (trained here, 5.625°)',
     competitor: 'Published frontier models (0.25°, regridded)',
-    live: 'Live operational runs (dynamical.org)',
+    ckpt: 'Our models (trained here, 5.625°)',
     persistence: 'Baseline',
   };
   for (const [kind, groupLabel] of Object.entries(GROUPS)) {
@@ -118,7 +120,8 @@ import { UNITS, currentUnit, setUnit, convert } from './units.js';
     }
     sourceSel.appendChild(og);
   }
-  sourceSel.value = 'era5';
+  sourceSel.value = manifest.sources.some(s => s.id === 'live_blend')
+    ? 'live_blend' : 'era5';
 
   document.getElementById('landBtn').addEventListener('click', (e) => {
     landBright = !landBright;

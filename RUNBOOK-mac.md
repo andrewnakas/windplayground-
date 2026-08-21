@@ -1,5 +1,11 @@
 # Runbook — adding WeatherNext 2 from your own machine
 
+> **Automated since 2026-08-21:** `scripts/wn_refresh_local.sh --install` puts
+> these steps on launchd (03:50/09:50/15:50/21:50 UTC, ~90 min after each CI
+> refresh) in a dedicated clone under `~/.windplayground-cron/`. Logs:
+> `~/Library/Logs/windplayground-wn.log`. The manual steps below remain the
+> reference and the recovery path.
+
 Everything else in this project runs in a cloud container. This one job cannot,
 for a boring reason: the container has no Google credentials and no way to
 obtain any. Your Mac already has working `gcloud` credentials, so running the
